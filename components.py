@@ -1,27 +1,33 @@
-import csv
+#import csv
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 
 
 # This wil create an object of a smart device associated at a building
 
 class DistNetwork:
-    def __init__(self,n_bus,lmps=[],t_step=0.083,n_t=12*24):
+    def __init__(self,n_bus,lmps,S,sub,t_step=0.083,n_t=12*24):
         if len(lmps) < n_t:
             raise Exception('Insufficient LMPs')
+        if len(sub) < n_bus:
+            raise Exception('Insufficient Substation limits')
         self.n_bus = n_bus
+        self.lmps = lmps
+        self.t_step = t_step
+        self.S = S
+        self.n_t = n_t
+        self.t_step = t_step
         self.nodes = {}
-        self.lmps = []
+        self.devices = {}
         for i in range(n_bus):
-            self.nodes[i] = Node(i,t_step=t_step,n_t=n_t)
+            self.nodes[i] = Node(i,sub[i],t_step=t_step,n_t=n_t)
     
-    def add_devices(self,filepath):
-        devices = {}
-        for i in self.nodes:
-            self.nodes[i].devices.append(EVCharger((i,0),
-                                                   t_step,n_t))
-            devices[i,0] = self.nodes[i][-1]
-        self.devices = devices
+    def add_household(self,node):
+        self.nodes[node].d += np.random.rand(self.n_t,)*10.
+    
+    def add_EV(self,node,name):
+        self.devices[node,name] = EVCharger((node,name),
+                                            self.t_step,self.n_t)
             
     
 class Controller:
@@ -31,30 +37,27 @@ class Controller:
         
         
 class Node:
-    def __init__(self,name,t_step,n_t):
+    def __init__(self,name,P,t_step,n_t):
         self.id = name
+        self.P = P # kW limit
         self.t_step = t_step
         self.n_t = n_t
-        self.devices = []
         self.prices = [0.]*n_t
-
+        self.d = np.array([0.]*n_t)
+        
 
 class Device:
-    def __init__(self,name,t_step,n_t,c_rate,d_rate):
+    def __init__(self,name,t_step,n_t,p,E):
         '''
         name (str): identifier of individual building
         t_step (float): size of timestep (hours)
         n_t (int): number of timesteps in the simulation
-        c_rate (float): maximum charging rate (kW)
-        d_rate (float): maximum discharging rate (kW)
         deadline (int): number of timesteps to completion
         '''
         self.id = name
         self.active = False
-        self.c_rate = 
-        self.d_rate = # maybe
-        self.energy = 0# Energy requirement over time_horizon
-        self.power = # Power of device
+        self.E = E# Estimated energy requirement over time_horizon
+        self.p = p# Power of device
         
         # initialisation
         self.deadline = n_t #
@@ -80,7 +83,7 @@ class Device:
 
 class EVCharger(Device):
     def __init__(self,name,t_step,n_t):
-        super().__init__(name, t_step, n_t, 7.0, 0.0)
+        super().__init__(name, t_step, n_t, 7.0, 20.0)
                                          
         
 # In the pyomo model we will have variables for all smart devices, but we will fix them to off when not plugged in
