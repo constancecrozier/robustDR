@@ -9,35 +9,60 @@ import datetime
 # This wil create an object of a smart device associated at a building
 
 class DistNetwork:
-    def __init__(self,n_bus,lmps,S,sub,t_step=0.083,n_t=12*24):
+    def __init__(self,n_bus,lmps,S,sub,t_step_min=5,n_t=12*24,
+                 length=10):
         if len(lmps) < n_t:
             raise Exception('Insufficient LMPs')
         if len(sub) < n_bus:
             raise Exception('Insufficient Substation limits')
         self.n_bus = n_bus
         self.lmps = lmps
-        self.t_step = t_step
+        self.t_step_min = t_step_min
+        self.t_step = round(t_step_min/60,4)
         self.S = S
         self.n_t = n_t
         self.t_step = t_step
         self.nodes = {}
         self.devices = {}
+        self.len = length # the number of horizons to store data for
         for i in range(n_bus):
-            self.nodes[i] = Node(i,sub[i],t_step=t_step,n_t=n_t)
+            self.nodes[i] = Node(i,sub[i],t_step=t_step,n_t=n_t,
+                                 self.len)
         self.loaded_bdgs = {}
     
-    def add_household(self,node,bid='10017',startdate=datetime.datetime(2018,1,1)):
-        if bid in self.loaded_bdgs:
-            
-        with open('data/bid_'+bid+'.csv','r') as csvfile:
+    def add_household(self,node,filepath,startdate):
+        if filepath in self.loaded_bdgs:
+            self.nodes[node].d += self.loaded_bdgs[filepath]
+            return None
+        d = []
+        n_days = int((self.len*self.n_t)/(12*24/self.t_step_min))+1
+        end = startdate + datetime.timedelta(n_days)
+        with open('filepath','r') as csvfile:
             reader = csv.reader(csvfile)
             next(reader)
+            for row in reader:
+                date = datetime.datetime(int(row[0][:4]),
+                                         int(row[0][5:7]),
+                                         int(row[0][8:10]))
+                if date < startdate:
+                    continue
+                    
+                n_
+                if date > end:
+                    continue
+                d += [float(row[1])]*int(15/self.t_step_min)
+            
+            d = np.array(d[:self.len*self.n_t])
+            self.loaded_bdgs[filepath] = d
+            self.nodes[node].d += self.loaded_bdgs[filepath]
+            return None
+        
     
     def add_EV(self,node,name,activity):
         self.devices[node,name] = EVCharger((node,name), activity,
                                             self.t_step,self.n_t)
             
-    
+
 class Controller:
     def __init__(self,network):
         self.t_step = network.t_step
@@ -45,17 +70,17 @@ class Controller:
         
         
 class Node:
-    def __init__(self,name,P,t_step,n_t):
+    def __init__(self,name,P,t_step,n_t,length):
         self.id = name
         self.P = P # kW limit
         self.t_step = t_step
         self.n_t = n_t
-        self.prices = [0.]*n_t
-        self.d = None
+        self.xi = [0.]*n_t
+        self.d = np.array([0.]*(n_t*length))
         
-
 class Device:
-    def __init__(self,name,activity,t_step,n_t,p,E_est,choice='thres',thres=0):
+    def __init__(self,name,activity,t_step,n_t,p,E_est,
+                 choice='thres',thres=0):
         '''
         name (str): identifier of individual building
         t_step (float): size of timestep (hours)
