@@ -4,7 +4,10 @@
 from pyomo.environ import (ConcreteModel, Objective, Constraint, 
                            Param, Var, Set, Boolean, minimize)
 
-def opt_model(nw):
+def price_model(nw):
+    '''
+    This functions creates a MILP optimization model for the bus pricing
+    '''
     M = 1e6 # for big M formulation
     
     # parameters
@@ -15,7 +18,7 @@ def opt_model(nw):
     def device_rating(model,i,j):
         return nw.devices[i,j].p
     def device_consumption(model,i,j):
-        return nw.devices[i,j].E
+        return nw.devices[i,j].E_est
     def sub1_lim(model):
         return nw.S
     def sub2_lim(model,i):
@@ -46,10 +49,11 @@ def opt_model(nw):
         return c
 
 
-    # one option: using Pyomo
     model = ConcreteModel()
+    
+    # Sets
     model.bus_set=Set(initialize=list(nw.nodes.keys()))
-    model.device_set=Set(initialize=list(nw.devices.keys()))
+    model.device_set=Set(initialize=[d for d in list(nw.devices.keys()) if d.active==True])
     model.time_set=Set(initialize=list(range(nw.n_t)))
 
     # Parameters
@@ -76,6 +80,37 @@ def opt_model(nw):
     
     model.Objective = Objective(rule=cost, sense=minimize)
     
-    
     return model
 
+def MPC_model(device):
+    '''
+    This function creates an MILP optimization problem for individual devices
+    to optimize their consumption
+    '''
+    
+    def prices(model,t):
+        return device.node.prices[t]
+    
+    def en_req(model):
+        return sum([model.x[t]*device.p*device.t_step for t in model.timeset]) == device.E
+    
+    def cost(model):
+        return sum([model.x[t]*model.c[t] for t in model.timeset])
+    
+    model = ConcreteModel()
+    
+    # Sets
+    model.time_set=Set(initialize=list(range(min(device.deadline,device.n_t)))
+    
+    # Parameters
+    model.c = Param(model.time_set,rule=prices)
+    
+    # Variables
+    model.x = Var(model.time_set, within=Boolean)
+    
+    # Constraints
+    model.en = Constraint(rule=en_req)
+    
+    model.Objective = Objective(rule=cost, sense=minimize)
+    
+    return model

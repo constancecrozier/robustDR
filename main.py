@@ -4,7 +4,6 @@ import csv
 
 from components import (DistNetwork, EVCharger)
 from sim_platform import Simulation
-from controller import opt_model
 
 # create a 2 bus distribution network at transmission node #?
 network = DistNetwork(1,[1.]*(12*24),60.,[20.]*3)
@@ -19,9 +18,6 @@ for i in range(network.n_bus):
     for n in range(2):
         network.add_EV(i,n)
 
-# set up controller 
-controller = opt_model(network)
-
 # intialize simulation
-sim = Simulation(network,controller)
+sim = Simulation(network)
 sim.update_prices()

@@ -2,12 +2,34 @@ import csv
 import numpy as np
 #import matplotlib.pyplot as plt
 from pyomo.opt import SolverFactory, SolverManagerFactory
+from controllers import price_model, MPC_model
 
 class Simulation:
-    def __init__(self,network,controller,results_filepath='results/sim'):
+    def __init__(self,network,controller,results_filepath='results/sim/'):
         self.nw = network
-        self.control = controller
+        self.control = None
         self.path = results_filepath
+        
+    def initialize_devices():
+        # we need like an activity log for all of the devices
+        pass
+    
+    def update_device_actions():
+        # Each device makes its charging decisions
+        for device in self.nw.devices:
+            if device.active == False:
+                continue
+            if device.opt is False:
+                if device.node.prices[0] <= device.c_thres:
+                    device.x = 1
+            else:
+                mpc = MPC_model(device)
+                opt = SolverFactory('cplex_direct',solver_io="python")
+                results=opt.solve(controller,tee=True)
+    
+    def update_device_requirements(self):
+        for device in self.nw.devices:
+            pass
         
     def timestep():
         pass
@@ -33,8 +55,13 @@ class Simulation:
         f.close()
     
     def update_prices(self):
+        controller = price_model(self.nw)
         opt = SolverFactory('cplex_direct',solver_io="python")
-        results=opt.solve(self.control,tee=True);
+        results=opt.solve(controller,tee=True)
+        # pass down prices to nodes
+        for i in self.nw.nodes:
+            self.nw.nodes[i].prices = []# NEW PRICES
+        
     
     def update_actions():
         pass
