@@ -53,7 +53,7 @@ def price_model(nw):
     
     # Sets
     model.bus_set=Set(initialize=list(nw.nodes.keys()))
-    model.device_set=Set(initialize=[d for d in list(nw.devices.keys()) if d.active==True])
+    model.device_set=Set(initialize=[d for d in list(nw.devices.keys()) if nw.devices[d].active==True])
     model.time_set=Set(initialize=list(range(nw.n_t)))
 
     # Parameters
@@ -75,8 +75,10 @@ def price_model(nw):
     model.c_def = Constraint(model.device_set,model.time_set,rule=c_def)
     model.c_def2 = Constraint(model.device_set,model.time_set,rule=c_def2)
     model.en_req = Constraint(model.device_set,rule=en_req)
-    model.sub1 = Constraint(model.time_set,rule=sub1)
-    #model.sub2 = Constraint(model.bus_set,model.time_set,rule=sub2)
+    
+    if len(model.device_set) > 0:
+        model.sub1 = Constraint(model.time_set,rule=sub1)
+        #model.sub2 = Constraint(model.bus_set,model.time_set,rule=sub2)
     
     model.Objective = Objective(rule=cost, sense=minimize)
     
@@ -89,21 +91,21 @@ def MPC_model(device):
     '''
     
     def prices(model,t):
-        return device.node.prices[t]
+        return device.prices[t]
     
     def en_req(model):
-        return sum([model.x[t]*device.p*device.t_step for t in model.timeset]) == device.E
+        return sum([model.x[t]*device.p*device.t_step for t in model.time_set]) >= device.E
     
     def cost(model):
-        return sum([model.x[t]*model.c[t] for t in model.timeset])
+        return sum([model.x[t]*model.c[t] for t in model.time_set])
     
     model = ConcreteModel()
     
     # Sets
-    model.time_set=Set(initialize=list(range(min(device.deadline,device.n_t)))
+    model.time_set=Set(initialize=list(range(min(device.deadline,device.n_t))))
     
     # Parameters
-    model.c = Param(model.time_set,rule=prices)
+    model.c = Param(model.time_set, rule=prices)
     
     # Variables
     model.x = Var(model.time_set, within=Boolean)
