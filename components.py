@@ -1,4 +1,4 @@
-import csv
+import csv, copy
 import numpy as np
 from pyomo.opt import SolverFactory, SolverManagerFactory
 from controllers import MPC_model
@@ -60,7 +60,8 @@ class DistNetwork:
     def add_EV(self,node,name,activity,start):
         self.devices[node,name] = EVCharger((node,name), activity, 
                                             start, self.t_step,
-                                            self.t_step_min, self.n_t)
+                                            self.t_step_min, self.n_t,
+                                            copy.deepcopy(self.lmps[:self.n_t]))
             
 
 class Controller:
@@ -80,7 +81,7 @@ class Node:
         
 class Device:
     def __init__(self,name,activity,start,t_step,t_step_min,n_t,p,E_est,
-                 choice='econ',thres=0):
+                 prices,choice='econ',thres=0):
         '''
         name (str): identifier of individual building
         t_step (float): size of timestep (hours)
@@ -96,13 +97,15 @@ class Device:
         self.E_est = E_est# Estimated energy requirement over time_horizon
         self.E = 0#actual energy requirement (unknown by controller)
         self.p = p# Power of device
-        self.prices = [0.]*n_t
+        self.prices = prices
+        self.charged = 0
+        self.time_passed = 0
         
         # initialisation
         self.deadline = n_t #
         self.c_thres = np.inf# the threshold price at which the vehicle will turn on
         self.x = 0#is the device drawing power
-        self.opt = False
+        self.econ = False
         self.load_activity_log(activity,start)
         
         if choice == 'econ':
@@ -116,7 +119,7 @@ class Device:
             
     def consumer_choice_econ(self):
         # The consumer chooses the economy setting
-        self.opt = True
+        self.econ = True
         
     def consumer_choice_now(self):
         # The consumer chooses the now setting
@@ -127,7 +130,7 @@ class Device:
         self.c_thres = c_thres
         
     def is_charge(self):
-        if self.opt == False:
+        if self.econ is False:
             if self.node.prices[0] <= self.c_thres:
                 self.x = 1
             else:
@@ -141,6 +144,10 @@ class Device:
         
     def load_activity_log(self,path='',start=datetime.datetime(2018,1,1)):
         self.events = []
+        
+        av_l = []
+        av_en = []
+        n = 0
         with open(path,'r') as csvfile:
             reader = csv.reader(csvfile)
             next(reader)
@@ -155,22 +162,31 @@ class Device:
                 if s < start:
                     continue
                 try:
-                    en = float(row[2])
+                    en = min(float(row[2]),66.7)
                 except:
                     continue
                 s = s-start
                 e = e-start
                 s = int((s.seconds+s.days*86400)/(60*self.t_step_min))
                 e = int((e.seconds+e.days*86400)/(60*self.t_step_min))
-                self.events.append([s,e,float(row[2])])
+                av_l += [e-s]
+                av_en += [en]
+                n += 1
+                max_en = (e-s-1)*self.p*self.t_step
+                en = min(max_en,en)
+                #print(en,max_en)
+                self.events.append([s,e,en])
+        #self.deadline_est = av_l/n
+        av_en = sorted(av_en)
+        self.E_est = av_en[int(n/2)]
+        print(self.E_est)
         self.events.append([np.inf,np.inf,1.])
-        
         if self.events[0][0] == 0:
             self.E = self.events[0][2]
             self.deadline = self.events[0][1]
             self.active = True
         
-    def step(self):
+    def step(self,timestep):
         # update times of events
         for i in range(len(self.events)):
             self.events[i][0] -= 1
@@ -178,24 +194,35 @@ class Device:
         
         # if charging update current charge
         self.E -= self.p*self.x*self.t_step
+        self.charged += self.p*self.x*self.t_step
+        
+        if self.active is True:
+            self.deadline -= 1
+            self.time_passed += 1
         
         # if fully charged, plug out and remove event from log
         if self.E < 0 and self.active is True:
             self.E = 0
             self.x = 0
+            self.charged = 0
+            self.time_passed = 0
             self.active = False
+            print(str(timestep)+': Disconnecting device '+str(self.id))
             self.events.pop(0)
             
         # if plugging in, activate
         if self.events[0][0] == 0:
+            print(str(timestep)+': Activating device '+str(self.id))
             self.active = True
+            self.deadline_est = 12*8
             self.E = self.events[0][2]
-            self.events[0][1]
+            print(self.E)
+            self.deadline = copy.deepcopy(self.events[0][1])
                                          
 
 class EVCharger(Device):
-    def __init__(self, name, activity, start, t_step, t_step_min, n_t):
-        super().__init__(name, activity, start, t_step, t_step_min,  n_t, 7.0, 10.0)
+    def __init__(self, name, activity, start, t_step, t_step_min, n_t, prices):
+        super().__init__(name, activity, start, t_step, t_step_min,  n_t, 7.0, 10.0, prices)
                                          
         
 # In the pyomo model we will have variables for all smart devices, but we will fix them to off when not plugged in
