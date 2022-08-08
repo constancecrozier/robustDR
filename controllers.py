@@ -8,6 +8,9 @@ def price_model(nw):
     '''
     This functions creates a MILP optimization model for the bus pricing
     '''
+    
+    requirements = True
+    
     M = 1e6 # for big M formulation
     
     
@@ -29,7 +32,10 @@ def price_model(nw):
     def device_rating(model,i,j):
         return nw.devices[i,j].p
     def device_consumption(model,i,j):
-        return max(model.p[i,j]*nw.t_step,nw.devices[i,j].E_est-nw.devices[i,j].charged)
+        if requirements is True:
+            return nw.devices[i,j].E
+        return max(model.p[i,j]*nw.t_step,nw.devices[i,j].E_est-nw.devices[i,j].charged,
+                   model.p[i,j]*nw.t_step*nw.devices[i,j].x)
     def sub1_lim(model):
         return nw.S
     def sub2_lim(model,i):
@@ -42,7 +48,7 @@ def price_model(nw):
     
     # constraints
     def xi_sum(model,i):
-        return sum([model.xi[i,t] for t in model.time_set]) == 0
+        return sum([model.xi[i,t] for t in model.time_set]) <= 0-model.sigma2
     def c_def(model,i,j,t):
         return (model.lmp[t]+model.xi[i,t] <= model.c[i,j] + M*(1-model.x[i,j,t]))
     def c_def2(model,i,j,t):
@@ -68,6 +74,7 @@ def price_model(nw):
                 c += model.x[i,j,t]*model.p[i,j]*model.lmp[t]
         for t in model.time_set:
             c += model.sigma[t]*model.kappa
+        c += model.kappa*model.sigma2
         #for (i,j) in model.device_set:
         #    c += model.sigmaj[i,j]*model.kappa
         return c
@@ -91,16 +98,38 @@ def price_model(nw):
 
     # Variables
     model.x = Var(model.device_set, model.time_set, within=Boolean)
-    model.xi = Var(model.bus_set, model.time_set)
+    model.xi = Var(model.bus_set, model.time_set, bounds=(-1000,1000))
     model.c = Var(model.device_set)
     model.sigma = Var(model.time_set, bounds=(0,1000))
+    model.sigma2 = Var(bounds=(0,1000))
     #model.sigmaj = Var(model.device_set, bounds=(0,100))
     
     for (i,j) in model.device_set:
-        if ((nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed)*model.p[i,j]*nw.t_step
-            > model.E[i,j] and nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed > 0):
-            for t in range(nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed,nw.n_t):
-                model.x[i,j,t].fix(0)
+        #print(i,j)
+        #print(nw.devices[i,j].E,end=' , ')
+        #print(model.E[i,j])
+        #print(nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed,end=' , ')
+        #print(nw.devices[i,j].deadline)
+        #print('')
+        if requirements is True:
+            if (nw.devices[i,j].deadline-(1-nw.devices[i,j].x))*model.p[i,j]*nw.t_step > model.E[i,j]:
+                for t in range(nw.devices[i,j].deadline,nw.n_t):
+                    model.x[i,j,t].fix(0)
+            else:
+                # minimum charging time
+                print('Fully constraining device ('+str(i)+', '+str(j)+')')
+                min_time = int(int(model.E[i,j]/(model.p[i,j]*nw.t_step))+1+(1-nw.devices[i,j].x))
+                for t in range(min_time,nw.n_t):
+                    model.x[i,j,t].fix(0)
+        else:
+            if (nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed)*model.p[i,j]*nw.t_step >  model.E[i,j]:
+                for t in range(nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed,nw.n_t):
+                    model.x[i,j,t].fix(0)
+                    
+            # Once our estimate of deadline is exceeded, assume vehicle will charge now
+            else:
+                for t in range(int(model.E[i,j]/(model.p[i,j]*nw.t_step))+2,nw.n_t):
+                    model.x[i,j,t].fix(0)
 
     # Constraints    
     model.xi_sum = Constraint(model.bus_set,rule=xi_sum)
@@ -218,6 +247,11 @@ def direct_control_model(nw):
 
     # Constraints 
     model.en_req = Constraint(model.device_set,rule=en_req)
+    
+    
+    for (i,j) in model.device_set:
+        for t in range(nw.devices[i,j].deadline,nw.n_t):
+            model.x[i,j,t].fix(0)
     
     if len(model.device_set) > 0:
         model.sub1 = Constraint(model.time_set,rule=sub1)

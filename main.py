@@ -51,7 +51,7 @@ lmps = get_casio_lmps(datetime.datetime(2021,1,1),
                       datetime.datetime(2021,2,1),resolution=5)
 
 # create a 1 bus distribution network at transmission node #?
-network = DistNetwork(10,lmps,10.,[40.]*13)
+network = DistNetwork(30,lmps,30.,[40.]*30)
 
 # add households to each node
 for i in range(network.n_bus):
@@ -71,14 +71,14 @@ for i in range(network.n_bus):
 
 # intialize simulation
 sim = Simulation(network)
-sim.run_simulation(1152,results_filepath='results/sim1')
-#sim.run_simulation(1152,results_filepath='results/sim2',opt=False)
-#sim.run_benchmark(1152,results_filepath='results/sim3')
+#sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_smart2')
+#sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_uncontrolled',opt=False)
+#sim.run_benchmark(2592,results_filepath='results/30EVs_1perNode_optimal')
 
-plt = Sim_Plot(network,xstart=288,xend=864)
-plt.plot_simulation('results/sim2','Dumb',0)
-plt.plot_simulation('results/sim1','Smart',1)#
-#plt.plot_prices('Dumb')
-#plt.plot_prices('Smart')
-#plt.plot_simulation('results/sim3','Optimal',2)
-plt.save_plot()
+plt = Sim_Plot(network,xstart=288,xend=2305)
+plt.plot_simulation('results/30EVs_1perNode_uncontrolled','Top-down',0,'#004D40')
+plt.plot_simulation('results/30EVs_1perNode_smart2','Proposed',1,'#D05799')
+plt.plot_simulation('results/30EVs_1perNode_smart','Proposed',2,'#D05799')
+#plt.plot_simulation('results/30EVs_1perNode_optimal','Direct',2,'#6799AF')
+
+plt.save_plot('forecast_comp.png')

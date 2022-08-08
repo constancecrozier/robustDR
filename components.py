@@ -176,10 +176,10 @@ class Device:
                 en = min(max_en,en)
                 #print(en,max_en)
                 self.events.append([s,e,en])
-        #self.deadline_est = av_l/n
         av_en = sorted(av_en)
+        av_l = sorted(av_l)
+        self.deadline_est = av_l[int(n*0.7)]
         self.E_est = av_en[int(n/2)]
-        print(self.E_est)
         self.events.append([np.inf,np.inf,1.])
         if self.events[0][0] == 0:
             self.E = self.events[0][2]
@@ -201,23 +201,34 @@ class Device:
             self.time_passed += 1
         
         # if fully charged, plug out and remove event from log
-        if self.E < 0 and self.active is True:
+        if self.E <= 0 and self.active is True:
             self.E = 0
             self.x = 0
             self.charged = 0
             self.time_passed = 0
             self.active = False
-            print(str(timestep)+': Disconnecting device '+str(self.id))
+            print(str(timestep)+': Disconnecting device '+str(self.id)+' with no unmet demand')
             self.events.pop(0)
+        
+        # if device has run out of time without fulfilling needs
+        if self.deadline <= 0 and self.active is True:
+            print(str(timestep)+': Disconnecting device '+str(self.id)+' with '+str(self.E)+'kWh unmet demand')
+            self.E = 0
+            self.x = 0
+            self.charged = 0
+            self.time_passed = 0
+            self.active = False
+            self.events.pop(0)
+            
             
         # if plugging in, activate
         if self.events[0][0] == 0:
-            print(str(timestep)+': Activating device '+str(self.id))
             self.active = True
-            self.deadline_est = 12*8
+            #self.deadline_est = 12*8
             self.E = self.events[0][2]
-            print(self.E)
             self.deadline = copy.deepcopy(self.events[0][1])
+            print(str(timestep)+': Activating device '+str(self.id)+' with '
+                  +str(self.E)+'kWh of demand')
                                          
 
 class EVCharger(Device):
