@@ -4,26 +4,18 @@
 from pyomo.environ import (ConcreteModel, Objective, Constraint, 
                            Param, Var, Set, Boolean, minimize)
 
-def price_model(nw):
+def price_model(nw, requirements=True, M=1e6):
     '''
     This functions creates a MILP optimization model for the bus pricing
+    
+    nw (Network object): parameterized network
+    
+    requirements (boo): Whether or not to give correct requirements to price controller
+    
+    M (float): constant for big M formulation
     '''
     
-    requirements = True
-    
-    M = 1e6 # for big M formulation
-    
-    
-    # Need to include information about current price and charging
-    # That means we need to save the last price for each device
-    # The energy constraint needs to consider only the time in the future
-    # I should seperate LMPS and LMP forecasts, but maybe that can wait
-    # I also want to update the E_est to be the previous charging demand
-    
-    # NEED TO RESOLVE: ISSUE WITH THE "CURRENT TIMESTEP"
-    # Basically I think that I need to change the order I call functions in
-    # We want to run the next prices after the actions have been updated, then step the prices, then run MPC>
-    
+        
     # parameters
     def demand(model,i,t):
         return nw.nodes[i].d[t]
@@ -43,22 +35,35 @@ def price_model(nw):
     def slack(model):
         return 1e6
     
-    
-    # info: both xi0 and x0 are zero, says problem is infeasible
-    
     # constraints
     def xi_sum(model,i):
-        return sum([model.xi[i,t] for t in model.time_set]) <= 0-model.sigma2
+        return sum([model.xi[i,t] for t in model.time_set]) == 0#-model.sigma2
     def c_def(model,i,j,t):
-        return (model.lmp[t]+model.xi[i,t] <= model.c[i,j] + M*(1-model.x[i,j,t]))
+        if nw.devices[i,j] == 1 and nw.devices[i,0].prices[0] > 1e3:
+            # accepting high price ==> assume device is fully constrained
+            min_time = int(model.E[i,j]/(model.p[i,j]*nw.t_step))+1
+            if t > min_time:
+                return Constraint.Skip
+        elif t < nw.devices[i,j].deadline:
+            return (model.lmp[t]+model.xi[i,t] <= model.c[i,j] + M*(1-model.x[i,j,t]))
+        else:
+            return Constraint.Skip
     def c_def2(model,i,j,t):
-        return (model.c[i,j] <= model.lmp[t]+model.xi[i,t] + M*model.x[i,j,t])
+        if nw.devices[i,j] == 1 and nw.devices[i,0].prices[0] > 1e3:
+            # accepting high price ==> assume device is fully constrained
+            min_time = int(model.E[i,j]/(model.p[i,j]*nw.t_step))+1
+            if t > min_time:
+                return Constraint.Skip
+        elif t < nw.devices[i,j].deadline:
+            return (model.c[i,j] <= model.lmp[t]+model.xi[i,t] + M*model.x[i,j,t])
+        else:
+            return Constraint.Skip
     def x0(model,i,j):
         return model.x[i,j,0] == nw.devices[i,j].x
     def xi0(model,i):
         return model.xi[i,0] == nw.devices[i,0].prices[0]-nw.lmps[0]
     def en_req(model,i,j):
-        return sum([model.x[i,j,t] for t in model.time_set])*model.p[i,j]*nw.t_step >= model.E[i,j] #- model.sigmaj[i,j]
+        return sum([model.x[i,j,t] for t in model.time_set])*model.p[i,j]*nw.t_step >= model.E[i,j] #-model.sigma2
     def sub1(model,t):
         return (sum(model.x[i,j,t]*model.p[i,j] for (i,j) in model.device_set) <=
                 model.S - sum(model.d[i,t] for i in model.bus_set) + model.sigma[t])
@@ -72,11 +77,12 @@ def price_model(nw):
         for (i,j) in model.device_set:
             for t in model.time_set:
                 c += model.x[i,j,t]*model.p[i,j]*model.lmp[t]
+                #c += model.x[i,j,t]*t
+                #c += model.xi[i,t]*(i+1)*1e-6
+            
         for t in model.time_set:
-            c += model.sigma[t]*model.kappa
-        c += model.kappa*model.sigma2
-        #for (i,j) in model.device_set:
-        #    c += model.sigmaj[i,j]*model.kappa
+            c += model.sigma[t]*model.kappa#*1e-3
+        #c += model.kappa*model.sigma2
         return c
 
 
@@ -98,29 +104,46 @@ def price_model(nw):
 
     # Variables
     model.x = Var(model.device_set, model.time_set, within=Boolean)
-    model.xi = Var(model.bus_set, model.time_set, bounds=(-1000,1000))
+    model.xi = Var(model.bus_set, model.time_set)
     model.c = Var(model.device_set)
     model.sigma = Var(model.time_set, bounds=(0,1000))
-    model.sigma2 = Var(bounds=(0,1000))
-    #model.sigmaj = Var(model.device_set, bounds=(0,100))
+    #model.sigma2 = Var(bounds=(0,1000))
+
+    # Constraints    
+    model.xi_sum = Constraint(model.bus_set,rule=xi_sum)
+    model.c_def = Constraint(model.device_set,model.time_set,rule=c_def)
+    model.c_def2 = Constraint(model.device_set,model.time_set,rule=c_def2)
+    model.en_req = Constraint(model.device_set,rule=en_req)
+    model.xi0 = Constraint(model.bus_set,rule=xi0)
+    model.x0 = Constraint(model.device_set,rule=x0)
     
     for (i,j) in model.device_set:
-        #print(i,j)
-        #print(nw.devices[i,j].E,end=' , ')
-        #print(model.E[i,j])
-        #print(nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed,end=' , ')
-        #print(nw.devices[i,j].deadline)
-        #print('')
-        if requirements is True:
+        '''
+        print(i,j)
+        #print(nw.lmps[:nw.n_t])
+        print(nw.devices[i,j].E,end=' , ')
+        print(model.E[i,j])
+        print(nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed,end=' , ')
+        print(nw.devices[i,j].deadline)
+        print('')#'''
+        if nw.devices[i,j] == 1 and nw.devices[i,0].prices[0] > 1e3:
+            # assume device is constrained
+            min_time = int(model.E[i,j]/(model.p[i,j]*nw.t_step))+1
+            for t in range(min_time,nw.n_t):
+                model.x[i,j,t].fix(0)
+                           
+        elif True:#requirements is True:
+            for t in range(nw.devices[i,j].deadline,nw.n_t):
+                 model.x[i,j,t].fix(0)
+            '''
             if (nw.devices[i,j].deadline-(1-nw.devices[i,j].x))*model.p[i,j]*nw.t_step > model.E[i,j]:
-                for t in range(nw.devices[i,j].deadline,nw.n_t):
-                    model.x[i,j,t].fix(0)
+            #    
             else:
                 # minimum charging time
                 print('Fully constraining device ('+str(i)+', '+str(j)+')')
                 min_time = int(int(model.E[i,j]/(model.p[i,j]*nw.t_step))+1+(1-nw.devices[i,j].x))
                 for t in range(min_time,nw.n_t):
-                    model.x[i,j,t].fix(0)
+                    model.x[i,j,t].fix(0)'''
         else:
             if (nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed)*model.p[i,j]*nw.t_step >  model.E[i,j]:
                 for t in range(nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed,nw.n_t):
@@ -130,14 +153,6 @@ def price_model(nw):
             else:
                 for t in range(int(model.E[i,j]/(model.p[i,j]*nw.t_step))+2,nw.n_t):
                     model.x[i,j,t].fix(0)
-
-    # Constraints    
-    model.xi_sum = Constraint(model.bus_set,rule=xi_sum)
-    model.c_def = Constraint(model.device_set,model.time_set,rule=c_def)
-    model.c_def2 = Constraint(model.device_set,model.time_set,rule=c_def2)
-    model.en_req = Constraint(model.device_set,rule=en_req)
-    model.xi0 = Constraint(model.bus_set,rule=xi0)
-    model.x0 = Constraint(model.device_set,rule=x0)
     
     if len(model.device_set) > 0:
         model.sub1 = Constraint(model.time_set,rule=sub1)

@@ -41,7 +41,7 @@ def get_casio_en(startdate,enddate,resolution=60):
             if day > enddate or day < startdate:
                 continue
             d = (day-startdate).days
-            h = int(row[1])
+            h = int(row[1])-1
             data_60[d*24+h] = float(row[2])
     
     if resolution == 60:
@@ -108,7 +108,15 @@ class Simulation:
         self.update_prices(int(opt),t)
         self.nw.step_nodes()
         self.step_devices(t)
-        self.nw.lmps = self.nw.lmps[1:]
+        
+        self.nw.lmp_true = self.nw.lmp_true[1:]
+        self.nw.lmp_est = self.nw.lmp_est[1:]
+        if self.nw.lmps[0] == self.nw.lmps[1]:
+            # next timestep within same hour
+            self.nw.lmps = self.nw.lmps[1:]
+        else:
+            self.nw.lmps = (copy.deepcopy(self.nw.lmp_true[:int(60/self.nw.t_step_min)])
+                            +copy.deepcopy(self.nw.lmp_est[int(60/self.nw.t_step_min):]))
         
     def timestep_benchmark(self,timestep):
         self.controller = direct_control_model(self.nw)
@@ -123,7 +131,14 @@ class Simulation:
         self.write_results(timestep)
         self.nw.step_nodes()
         self.step_devices(timestep)
-        self.nw.lmps = self.nw.lmps[1:]
+        self.nw.lmp_true = self.nw.lmp_true[1:]
+        self.nw.lmp_est = self.nw.lmp_est[1:]
+        if self.nw.lmps[0] == self.nw.lmps[1]:
+            # next timestrp within same hour
+            self.nw.lmps = self.nw.lmps[1:]
+        else:
+            self.nw.lmps = (copy.deepcopy(self.nw.lmp_true[:int(60/self.nw.t_step_min)])
+                            +copy.deepcopy(self.nw.lmp_est[int(60/self.nw.t_step_min):]))
     
     def create_results_file(self):
         f = open(self.path+'.txt','w')
@@ -160,9 +175,12 @@ class Simulation:
         if opt == 1:
             sol = SolverFactory('cplex_direct',solver_io="python")
             results=sol.solve(self.controller,tee=False)
-            if self.controller.sigma[0].value > 1e-3:
-                print(str(t)+': constraint violation '
-                      +str(self.controller.sigma[0].value))
+            try:
+                if self.controller.sigma[0].value > 1e-3:
+                    print(str(t)+': constraint violation '
+                          +str(self.controller.sigma[0].value))
+            except:
+                print(str(t)+': optimization failed')
             
         # pass down prices to nodes
         for (i,j) in self.nw.devices:
@@ -170,17 +188,19 @@ class Simulation:
                 self.nw.devices[i,j].prices[t] = self.nw.lmps[t+1]
                 if (opt == 1 and t < len(self.controller.time_set)-1 
                     and len(self.controller.device_set) > 0):
-                    self.nw.devices[i,j].prices[t] += self.controller.xi[i,t+1].value
+                    if self.controller.xi[i,t+1].value != None:
+                        self.nw.devices[i,j].prices[t] += self.controller.xi[i,t+1].value
                 
 class Sim_Plot:
-    def __init__(self,nw,xstart=0,xend=None):
+    def __init__(self,nw,xstart=0,xend=None,ystart=0,yend=None):
         plt.rcParams["font.family"] = 'serif'
         plt.rcParams["font.size"] = '10'
         
         self.xstart = copy.deepcopy(xstart)
         self.xend = copy.deepcopy(xend)
         
-        self.fig = plt.figure(figsize=(7,4))
+        
+        self.fig = plt.figure(figsize=(7,5))
         #gs = GridSpec(2, 2, figure=self.fig)
         #self.ax1 = self.fig.add_subplot(gs[0, :])
         #self.ax2 = self.fig.add_subplot(gs[1,0])
@@ -208,9 +228,14 @@ class Sim_Plot:
 
         if xend is None:
             xend = nw.n_t*nw.len
+        if yend is None:
+            yend=nw.S*3
 
-        # change x range
+        # change x and y range
         self.ax1.set_xlim(xstart,xend)
+        self.ax1.set_ylim(ystart,yend)
+        self.ax1.grid(ls='--',zorder=0)
+        
 
         # set titles
         self.ax1.set_ylabel('Power Demand (kW)',y=0.8)
@@ -297,7 +322,7 @@ class Sim_Plot:
         p_total = p_total[self.xstart:self.xend]
         
         energy = (sum(p_total)-sum(self.d[self.xstart:self.xend]))*self.t_step
-        self.ax1.plot(_t,p,c=c,lw=1.6)
+        self.ax1.plot(_t,p,c=c,lw=1.5,zorder=3)
         self.ax2.bar([n],[sum(cost)/energy],label=name,color=c)
         
         # difference between power and limit
@@ -309,8 +334,8 @@ class Sim_Plot:
     def save_plot(self,figname):
         self.ax2.set_xticks(self.xpts)
         self.ax3.set_xticks(self.xpts)
-        self.ax2.set_xticklabels(self.ticks)
-        self.ax3.set_xticklabels(self.ticks)
+        self.ax2.set_xticklabels(self.ticks,rotation=45)
+        self.ax3.set_xticklabels(self.ticks,rotation=45)
         self.ax1.legend(ncol=1)
         self.fig.tight_layout()
         self.fig.savefig(figname,dpi=300)

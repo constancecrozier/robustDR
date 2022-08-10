@@ -9,14 +9,21 @@ import datetime
 # This wil create an object of a smart device associated at a building
 
 class DistNetwork:
-    def __init__(self,n_bus,lmps,S,sub,t_step_min=5,n_t=12*24,
+    def __init__(self,n_bus,lmps,lmp_est,S,sub=None,t_step_min=5,n_t=12*24,
                  length=10):
         if len(lmps) < n_t:
             raise Exception('Insufficient LMPs')
-        if len(sub) < n_bus:
-            raise Exception('Insufficient Substation limits')
+        if len(lmp_est) < n_t:
+            raise Exception('Insufficient LMP estimates')
+            
+        if sub is None:
+            sub = [np.inf]*n_bus
         self.n_bus = n_bus
+        self.lmp_true = lmps
+        self.lmp_est = lmp_est
         self.lmps = lmps
+        self.lmps = (copy.deepcopy(self.lmp_true[:int(60/t_step_min)])
+                     +copy.deepcopy(self.lmp_est[int(60/t_step_min):]))
         self.t_step_min = t_step_min
         self.t_step = round(t_step_min/60,4)
         self.S = S
@@ -57,11 +64,12 @@ class DistNetwork:
         for i in self.nodes:
             self.nodes[i].d = self.nodes[i].d[1:]
     
-    def add_EV(self,node,name,activity,start):
+    def add_EV(self,node,name,activity,start,choice='econ'):
         self.devices[node,name] = EVCharger((node,name), activity, 
                                             start, self.t_step,
                                             self.t_step_min, self.n_t,
-                                            copy.deepcopy(self.lmps[:self.n_t]))
+                                            copy.deepcopy(self.lmps[:self.n_t]),
+                                            choice=choice)
             
 
 class Controller:
@@ -131,7 +139,7 @@ class Device:
         
     def is_charge(self):
         if self.econ is False:
-            if self.node.prices[0] <= self.c_thres:
+            if self.prices[0] <= self.c_thres:
                 self.x = 1
             else:
                 self.x = 0
@@ -232,8 +240,10 @@ class Device:
                                          
 
 class EVCharger(Device):
-    def __init__(self, name, activity, start, t_step, t_step_min, n_t, prices):
-        super().__init__(name, activity, start, t_step, t_step_min,  n_t, 7.0, 10.0, prices)
+    def __init__(self, name, activity, start, t_step, t_step_min, n_t, prices, 
+                 choice='econ'):
+        super().__init__(name, activity, start, t_step, t_step_min,  n_t, 7.0, 
+                         10.0, prices, choice=choice)
                                          
         
 # In the pyomo model we will have variables for all smart devices, but we will fix them to off when not plugged in
