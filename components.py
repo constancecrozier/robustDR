@@ -70,6 +70,18 @@ class DistNetwork:
                                             self.t_step_min, self.n_t,
                                             copy.deepcopy(self.lmps[:self.n_t]),
                                             choice=choice)
+        
+    def add_HVAC(self,node,name,temperature,start,R,C,T0,T_min,T_max):
+        self.devices[node,name+'a'] = Heating((node,name),self.t_step,
+                                              self.t_step_min, self.n_t,
+                                              copy.deepcopy(self.lmps[:self.n_t]),
+                                              temperature,start,R,C,T0,T_min)
+        self.devices[node,name+'b'] = Cooling((node,name),self.t_step,
+                                              self.t_step_min, self.n_t,
+                                              copy.deepcopy(self.lmps[:self.n_t]),
+                                              temperature,start,R,C,T0,T_max)
+    
+
             
 class Controller:
     def __init__(self,network):
@@ -87,7 +99,7 @@ class Node:
         self.d = np.array([0.]*(n_t*length))
         
 class Device:
-    def __init__(self,name,t_step,t_step_min,n_t,prices,p,ets,
+    def __init__(self,name,t_step,t_step_min,n_t,prices,p,eta,
                  typ='deadline',interruptile=True,
                  activity=None,temp=None,startdate=None,
                  T_min=None, T_max=None, R=None, C=None, T0=None,
@@ -99,7 +111,7 @@ class Device:
         n_t (int): number of timesteps in the simulation
         prices (Array): list of forecast DR prices
         p (float): rating of device (kW)
-        p (float): device efficiency (%)
+        eta (float): device efficiency (%)
         
         typ (str): type of device either 'deadline' or 'thermal'
         interruptile (boo): whether the demand can be interrupted
@@ -125,8 +137,8 @@ class Device:
             raise Exception('type not recognized')
         if typ == 'thermal' and interruptile == False:
             raise Exception('thermal devices must be interruptible')
-        if typ == 'thermal' and (t_min == None or t_max == None):
-            raise Exception('thermal devices require temperature bounds')
+        if typ == 'thermal' and (t_min == None and t_max == None):
+            raise Exception('thermal devices require a temperature bound')
         if typ == 'thermal' and (R == None or C == None):
             raise Exception('thermal devices require r and c values')
             
@@ -287,13 +299,19 @@ class Device:
 class EVCharger(Device):
     def __init__(self, name, activity, start, t_step, t_step_min, n_t, prices, 
                  choice='econ'):
-        super().__init__(name, activity, start, t_step, t_step_min,  n_t, 7.0, 
-                         10.0, prices, choice=choice)
+        super().__init__(name, t_step, t_step_min, n_t, prices, 7.0, 0.9,
+                         typ='deadline',interruptile=True,
+                         activity=activity,startdate=start,choice=choice)
                                          
-#class HeatPump(Device):
+class Heating(Device):
+    def __init__(self, name, t_step, t_step_min, n_t, prices, temp,
+                 start, R, C, T0, T_min):
+        super().__init__(name, t_step, t_step_min, n_t, prices, 4.0, 0.7,
+                         typ='thermal', temp=temp, startdate=start,
+                         T_min=T_min, R=R, C=C, T0=T0)
+
 
 #class AC(Device):
 
 
-        
         

@@ -65,7 +65,7 @@ ev_no = 0
 # add EV chargers to each node
 for i in range(network.n_bus):
     for n in range(1):
-        network.add_EV(i,n,'data/'+evs[ev_no],datetime.datetime(2018,1,1),
+        network.add_EV(i,'EV'+str(n),'data/'+evs[ev_no],datetime.datetime(2018,1,1),
                        choice=choices[i%2])
         ev_no += 1
         if ev_no == len(evs):

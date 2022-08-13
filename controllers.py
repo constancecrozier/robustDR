@@ -24,6 +24,8 @@ def price_model(nw, requirements=True, M=1e6):
         return nw.lmps[t]
     def device_rating(model,i,j):
         return nw.devices[i,j].p
+    def device_eff(model,i,j):
+        return nw.devices[i,j].eta
     def device_consumption(model,i,j):
         if requirements is True:
             return nw.devices[i,j].E
@@ -101,12 +103,17 @@ def price_model(nw, requirements=True, M=1e6):
     # Sets
     model.bus_set=Set(initialize=list(nw.nodes.keys()))
     model.device_set=Set(initialize=[d for d in list(nw.devices.keys()) if nw.devices[d].active==True])
+    model.dead_dev_set=Set(initialize=[d for d in list(nw.devices.keys()) if nw.devices[d].active==True 
+                                       and nw.devices[c].typ == 'deadline'])
+    model.therm_dev_set=Set(initialize=[d for d in list(nw.devices.keys()) if nw.devices[d].active==True 
+                                       and nw.devices[c].typ == 'thermal'])
     model.time_set=Set(initialize=list(range(nw.n_t)))
 
     # Parameters
     model.d = Param(model.bus_set,model.time_set,rule=demand)
     model.lmp = Param(model.time_set,rule=lmps)
     model.p = Param(model.device_set,rule=device_rating)
+    model.eta = Param(model.device_set,rule=device_eff)
     model.P = Param(model.bus_set,rule=sub2_lim)
     model.S = Param(rule=sub1_lim)
     model.E = Param(model.device_set,rule=device_consumption)
@@ -117,6 +124,7 @@ def price_model(nw, requirements=True, M=1e6):
     model.x = Var(model.device_set, model.time_set, within=Boolean)
     model.xi = Var(model.bus_set, model.time_set)
     model.c = Var(model.device_set)
+    model.T = Var(model.therm_device_set)
     model.sigma = Var(model.time_set, bounds=(0,1000))
     #model.sigma2 = Var(bounds=(0,1000))
 
@@ -124,7 +132,7 @@ def price_model(nw, requirements=True, M=1e6):
     model.xi_sum = Constraint(model.bus_set,rule=xi_sum)
     model.c_def = Constraint(model.device_set,model.time_set,rule=c_def)
     model.c_def2 = Constraint(model.device_set,model.time_set,rule=c_def2)
-    model.en_req = Constraint(model.device_set,rule=en_req)
+    model.en_req = Constraint(model.dead_device_set,rule=en_req)
     model.xi0 = Constraint(model.bus_set,rule=xi0)
     model.x0 = Constraint(model.device_set,rule=x0)
     
@@ -179,6 +187,11 @@ def MPC_model(device,typ,interruptible,bound='Lower'):
     def en_req(model):
         return (sum([model.x[t]*device.p*device.t_step*device.eta for t in model.time_set]) 
                 + model.sigma >= device.E)
+    def unint(model,t):
+        if t == 0:
+            return Constriant.Skip
+        else:
+            return model.x[t] >= model.x[t-1]
     
     def temp(model,t):
         if t == 0:
@@ -211,7 +224,7 @@ def MPC_model(device,typ,interruptible,bound='Lower'):
     if typ == 'deadline':
         model.en = Constraint(rule=en_req)
         if interruptible is True:
-            model.unint = Constraint(model.time_set)
+            model.unint = Constraint(model.time_set,rule=unint)
             
     else:
         model.T = Var(model.time_set)
@@ -221,7 +234,6 @@ def MPC_model(device,typ,interruptible,bound='Lower'):
         else:
             model.bound = Constraint(model.time_set,rule=t_max)
         
-    
     
     model.Objective = Objective(rule=cost, sense=minimize)
     
