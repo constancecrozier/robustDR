@@ -73,15 +73,15 @@ for i in range(network.n_bus):
 
 # intialize simulation
 sim = Simulation(network)
-#sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_halfsmart')
+#sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_halfsmart_proposed')
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_uncontrolled',opt=False)
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_chargenow',opt=False)
-#sim.run_benchmark(2592,results_filepath='results/30EVs_1perNode_optimal')
+#sim.run_benchmark(2592,results_filepath='results/30EVs_1perNode_halfsmart_direct')
 
-plt = Sim_Plot(network,xstart=432,xend=1296,ystart=0,yend=125,nh=6)
+plt = Sim_Plot(network,xstart=432,xend=1296,ystart=0,yend=120,nh=6)
 plt.plot_simulation('results/30EVs_1perNode_chargenow','Uncontrolled',0,'#440154')
 plt.plot_simulation('results/30EVs_1perNode_uncontrolled','Top-down',1,'#31688e')
-plt.plot_simulation('results/30EVs_1perNode_halfsmart','Proposed',2,'#35b779')
-plt.plot_simulation('results/30EVs_1perNode_optimal','Direct',3,'#fde725')
+plt.plot_simulation('results/30EVs_1perNode_allsmart_proposed','Proposed',2,'#35b779')
+plt.plot_simulation('results/30EVs_1perNode_allsmart_direct','Direct',3,'#fde725')
 
-plt.save_plot('forecast_comp.png')
+plt.save_plot('all_smart.png')

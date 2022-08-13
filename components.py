@@ -71,7 +71,6 @@ class DistNetwork:
                                             copy.deepcopy(self.lmps[:self.n_t]),
                                             choice=choice)
             
-
 class Controller:
     def __init__(self,network):
         self.t_step = network.t_step
@@ -88,42 +87,86 @@ class Node:
         self.d = np.array([0.]*(n_t*length))
         
 class Device:
-    def __init__(self,name,activity,start,t_step,t_step_min,n_t,p,E_est,
-                 prices,choice='econ',thres=0):
+    def __init__(self,name,t_step,t_step_min,n_t,prices,p,ets,
+                 typ='deadline',interruptile=True,
+                 activity=None,temp=None,startdate=None,
+                 T_min=None, T_max=None, R=None, C=None, T0=None,
+                 choice='econ',c_thres=np.inf):
         '''
-        name (str): identifier of individual building
+        name (str): identifier of individual device
         t_step (float): size of timestep (hours)
+        t_step_min (float): size of timestep (mins)
         n_t (int): number of timesteps in the simulation
-        deadline (int): number of timesteps to completion
+        prices (Array): list of forecast DR prices
+        p (float): rating of device (kW)
+        p (float): device efficiency (%)
+        
+        typ (str): type of device either 'deadline' or 'thermal'
+        interruptile (boo): whether the demand can be interrupted
+        
+        activity (str): filepath to activity log
+        temp (str): filepath to temperature log
+        startdate (datetime): beginning of simulation
+        
+        T_min (float): lower building temperature bound (degrees C)
+        T_max (float): upper building temperature bound (degrees C)
+        r (float):
+        c (float):
+        T0 (float): intial building temperature (degrees C)
+        
+        choice (str): for deadline devices, econ, c_thres, or now
+        c_thres (float): the upper charging limit ($/kWh)
         '''
-        self.id = name
-        self.node = name[0]
-        self.active = False
+        
+        # Some checks
+        if choice not in ['econ','c_thres','now']:
+            raise Exception('choice not recognized')
+        if typ not in ['deadline', 'thermal']:
+            raise Exception('type not recognized')
+        if typ == 'thermal' and interruptile == False:
+            raise Exception('thermal devices must be interruptible')
+        if typ == 'thermal' and (t_min == None or t_max == None):
+            raise Exception('thermal devices require temperature bounds')
+        if typ == 'thermal' and (R == None or C == None):
+            raise Exception('thermal devices require r and c values')
+            
+        # Simulation properties
         self.t_step = t_step
         self.t_step_min = t_step_min
-        self.n_t = n_t
-        self.E_est = E_est# Estimated energy requirement over time_horizon
-        self.E = 0#actual energy requirement (unknown by controller)
-        self.p = p# Power of device
+        self.n_t = n_t 
         self.prices = prices
+        
+        # Device properties
+        self.id = name
+        self.node = name[0]
+        self.p = p
+        self.eta = eta
+        self.type = typ
+        self.interruptile = interruptile
+        self.R = R
+        self.C = C
+        self.T_min = T_min
+        self.T_max = T_max
+        
+        # Initialization
+        self.active = False # is device connected
+        self.E = 0 # actual energy required (kWh)
+        self.x = 0 # is device drawing power
+        self.T = T0
+        self.deadline = n_t 
         self.charged = 0
-        self.time_passed = 0
+        self.time_passed = 0 
         
-        # initialisation
-        self.deadline = n_t #
-        self.c_thres = np.inf# the threshold price at which the vehicle will turn on
-        self.x = 0#is the device drawing power
-        self.econ = False
-        self.load_activity_log(activity,start)
-        
+        # Consumer preferences
+        self.c_thres = c_thres
         if choice == 'econ':
-            self.consumer_choice_econ()
-        elif choice == 'now':
-            self.consumer_choice_now()
-        elif choice == 'thres':
-            self.consumer_choice_thres(thres)
+            self.econ = True
         else:
-            raise Exception('value for choice not recognized')
+            self.econ = False
+        if typ == 'deadline':
+            self.load_activity_log(activity,start)
+        else:
+            self.load_temperature_log(activity,start)
             
     def consumer_choice_econ(self):
         # The consumer chooses the economy setting
@@ -144,11 +187,10 @@ class Device:
             else:
                 self.x = 0
         else:
-            mpc = MPC_model(self)
+            mpc = MPC_model(self,self.type,self.interruptible)
             opt = SolverFactory('cplex_direct',solver_io="python")
             results=opt.solve(mpc,tee=False)
             self.x = mpc.x[0].value
-            #self.c_thres = mpc.c[device[0],device[1]]
         
     def load_activity_log(self,path='',start=datetime.datetime(2018,1,1)):
         self.events = []
@@ -193,6 +235,9 @@ class Device:
             self.E = self.events[0][2]
             self.deadline = self.events[0][1]
             self.active = True
+    
+    def load_temperature_log(self,path='',start=datetime.datetime(2018,1,1)):
+        return None
         
     def step(self,timestep):
         # update times of events
@@ -245,16 +290,9 @@ class EVCharger(Device):
         super().__init__(name, activity, start, t_step, t_step_min,  n_t, 7.0, 
                          10.0, prices, choice=choice)
                                          
-        
-# In the pyomo model we will have variables for all smart devices, but we will fix them to off when not plugged in
+#class HeatPump(Device):
 
-# other option: directly CPLEX
-
-
-
-
-#model.OBJ = pyo.Objective(expr = 2*model.x[1] + 3*model.x[2])
-#model.Constraint1 = pyo.Constraint(expr = 3*model.x[1] + 4*model.x[2] >= 1)
+#class AC(Device):
 
 
         

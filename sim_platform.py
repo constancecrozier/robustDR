@@ -122,12 +122,16 @@ class Simulation:
         self.controller = direct_control_model(self.nw)
         sol = SolverFactory('cplex_direct',solver_io="python")
         results=sol.solve(self.controller,tee=False)
+        
         # pass down prices to nodes
         for (i,j) in self.nw.devices:
             for t in self.controller.time_set:
                 self.nw.devices[i,j].prices[t] = self.controller.xi[i,t]+self.nw.lmps[t]
             if self.nw.devices[i,j].active == True:
-                self.nw.devices[i,j].x = self.controller.x[i,j,0].value
+                if self.nw.devices[i,j].econ == True:
+                    self.nw.devices[i,j].x = self.controller.x[i,j,0].value
+                else:
+                    self.nw.devices[i,j].is_charge()
         self.write_results(timestep)
         self.nw.step_nodes()
         self.step_devices(timestep)
@@ -192,7 +196,16 @@ class Simulation:
                         self.nw.devices[i,j].prices[t] += self.controller.xi[i,t+1].value
                 
 class Sim_Plot:
-    def __init__(self,nw,xstart=0,xend=None,ystart=0,yend=None):
+    def __init__(self,nw,xstart=0,xend=None,ystart=0,yend=None,nh=12):
+        '''
+        nw (Network): Network object
+        xstart (int): x axis lower limit for plot
+        xend (int): x axis lower upper for plot
+        ystart (int): y axis lower limit for plot
+        yend (int): y axis lower upper for plot
+        nh (int): number of hours per tick for x axis
+        '''
+        
         plt.rcParams["font.family"] = 'serif'
         plt.rcParams["font.size"] = '10'
         
@@ -249,7 +262,6 @@ class Sim_Plot:
 
         # change x scale to hours
         sf = int(60/nw.t_step_min)
-        nh = 12#number of hours per tick
         
         self.t_step = nw.t_step
         ticks = np.arange(int(xstart/sf),int(xend/sf),nh)
@@ -323,19 +335,21 @@ class Sim_Plot:
         
         energy = (sum(p_total)-sum(self.d[self.xstart:self.xend]))*self.t_step
         self.ax1.plot(_t,p,c=c,lw=1.5,zorder=3)
-        self.ax2.bar([n],[sum(cost)/energy],label=name,color=c)
+        self.ax2.bar([n],[sum(cost)/energy],label=name,color=c,zorder=2)
         
         # difference between power and limit
         diff = np.array(p_total)-np.array([self.lim]*len(p_total))
         viol = sum([])
         self.ax3.bar([n],[sum([d for d in diff if d >0])*self.t_step],
-                     label=name,color=c)
+                     label=name,color=c,zorder=2)
     
     def save_plot(self,figname):
         self.ax2.set_xticks(self.xpts)
         self.ax3.set_xticks(self.xpts)
         self.ax2.set_xticklabels(self.ticks,rotation=45)
         self.ax3.set_xticklabels(self.ticks,rotation=45)
+        self.ax2.grid(ls='--',zorder=0)
+        self.ax3.grid(ls='--',zorder=0)
         self.ax1.legend(ncol=1)
         self.fig.tight_layout()
         self.fig.savefig(figname,dpi=300)
