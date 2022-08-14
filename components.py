@@ -34,8 +34,12 @@ class DistNetwork:
         for i in range(n_bus):
             self.nodes[i] = Node(i,sub[i],self.t_step,self.n_t,self.len)
         self.loaded_bdgs = {}
+        self.buildings = {}
     
-    def add_household(self,node,filepath,startdate):
+    def add_building(self,node_id,building_id,filepath,startdate,R=7.5,C=3.,T0=20):
+        #self.nodes[node].buildings[name] = Building(node,name,R,C,T0)
+        self.buildings[node_id,building_id] = Building(node_id,building_id,R,C,T0)
+        
         if filepath in self.loaded_bdgs:
             self.nodes[node].d += self.loaded_bdgs[filepath]
             return None
@@ -64,22 +68,24 @@ class DistNetwork:
         for i in self.nodes:
             self.nodes[i].d = self.nodes[i].d[1:]
     
-    def add_EV(self,node,name,activity,start,choice='econ'):
-        self.devices[node,name] = EVCharger((node,name), activity, 
-                                            start, self.t_step,
-                                            self.t_step_min, self.n_t,
-                                            copy.deepcopy(self.lmps[:self.n_t]),
-                                            choice=choice)
+    def add_EV(self,node_id,building_id,device_id,activity,start,choice='econ'):
+        self.devices[node_id,building_id,device_id] = EVCharger(node_id, building_id, device_id,
+                                                                activity, start, self.t_step,
+                                                                self.t_step_min, self.n_t,
+                                                                copy.deepcopy(self.lmps[:self.n_t]),
+                                                                choice=choice)
         
-    def add_HVAC(self,node,name,temperature,start,R,C,T0,T_min,T_max):
-        self.devices[node,name+'a'] = Heating((node,name),self.t_step,
-                                              self.t_step_min, self.n_t,
-                                              copy.deepcopy(self.lmps[:self.n_t]),
-                                              temperature,start,R,C,T0,T_min)
-        self.devices[node,name+'b'] = Cooling((node,name),self.t_step,
-                                              self.t_step_min, self.n_t,
-                                              copy.deepcopy(self.lmps[:self.n_t]),
-                                              temperature,start,R,C,T0,T_max)
+    def add_HVAC(self,node_id,building_id,device_id,temperature,start,T_min,T_max):
+        self.devices[node_id,building_id,device_id+'a'] = Heating(node_id, building_id, device_id,
+                                                                  self.t_step,self.t_step_min, self.n_t,
+                                                                  copy.deepcopy(self.lmps[:self.n_t]),
+                                                                  T_min)
+        
+        self.devices[node_id,building_id,device_id+'b'] = Cooling(node_id, building_id, device_id,
+                                                                  self.t_step,self.t_step_min, self.n_t,
+                                                                  copy.deepcopy(self.lmps[:self.n_t]),
+                                                                  T_max)
+                     
     
 
             
@@ -97,12 +103,23 @@ class Node:
         self.n_t = n_t
         self.xi = [0.]*n_t
         self.d = np.array([0.]*(n_t*length))
+        self.buildings = {}
+        
+class Building:
+    def __init__(self,node_id,building_id,R,C,T0,T_out):
+        self.node_id = node_id
+        self.building_id = building_id
+        self.R = R
+        self.C = C
+        self.T = T0
+        self.Tout = T_out
+        
         
 class Device:
-    def __init__(self,name,t_step,t_step_min,n_t,prices,p,eta,
-                 typ='deadline',interruptile=True,
-                 activity=None,temp=None,startdate=None,
-                 T_min=None, T_max=None, R=None, C=None, T0=None,
+    def __init__(self, node_id, building_id, device_id,
+                 t_step, t_step_min, n_t, prices, p, eta,
+                 typ='deadline', interruptile=True,
+                 activity=None, T_min=None, T_max=None,
                  choice='econ',c_thres=np.inf):
         '''
         name (str): identifier of individual device
@@ -149,8 +166,9 @@ class Device:
         self.prices = prices
         
         # Device properties
-        self.id = name
-        self.node = name[0]
+        self.device_id = name_id
+        self.node_id = node_id
+        self.building_id = building_id
         self.p = p
         self.eta = eta
         self.type = typ
@@ -297,18 +315,17 @@ class Device:
                                          
 
 class EVCharger(Device):
-    def __init__(self, name, activity, start, t_step, t_step_min, n_t, prices, 
-                 choice='econ'):
-        super().__init__(name, t_step, t_step_min, n_t, prices, 7.0, 0.9,
-                         typ='deadline',interruptile=True,
-                         activity=activity,startdate=start,choice=choice)
+    def __init__(self, node_id, building_id, device_id, activity, start, t_step, 
+                 t_step_min, n_t, prices, choice='econ'):
+        super().__init__(node_id, building_id, device_id, t_step, t_step_min, 
+                         n_t, prices, 7.0, 0.9, typ='deadline', interruptile=True,
+                         activity=activity, startdate=start, choice=choice)
                                          
 class Heating(Device):
     def __init__(self, name, t_step, t_step_min, n_t, prices, temp,
                  start, R, C, T0, T_min):
         super().__init__(name, t_step, t_step_min, n_t, prices, 4.0, 0.7,
-                         typ='thermal', temp=temp, startdate=start,
-                         T_min=T_min, R=R, C=C, T0=T0)
+                         typ='thermal', T_min=T_min)
 
 
 #class AC(Device):
