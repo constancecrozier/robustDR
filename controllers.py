@@ -137,14 +137,6 @@ def price_model(nw, requirements=True, M=1e6):
     model.x0 = Constraint(model.device_set,rule=x0)
     
     for (i,j) in model.device_set:
-        '''
-        print(i,j)
-        #print(nw.lmps[:nw.n_t])
-        print(nw.devices[i,j].E,end=' , ')
-        print(model.E[i,j])
-        print(nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed,end=' , ')
-        print(nw.devices[i,j].deadline)
-        print('')#'''
         if True:#requirements is True:
             for t in range(model.deadline[i,j],nw.n_t):
                  model.x[i,j,t].fix(0)
