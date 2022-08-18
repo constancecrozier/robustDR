@@ -9,7 +9,7 @@ from controllers import price_model, MPC_model, direct_control_model
 # check lmps are included in the write data file
 # build iteration
 
-def get_casio_lmps(startdate,enddate,resolution=60):
+def get_caiso_lmps(startdate,enddate,resolution=60):
     data_60 = np.zeros((24*(enddate-startdate).days,))
     with open('data/CAISO_LMP.csv','r') as csvfile:
         reader = csv.reader(csvfile)
@@ -31,7 +31,7 @@ def get_casio_lmps(startdate,enddate,resolution=60):
             data.append(data_60[t])
     return data
 
-def get_casio_en(startdate,enddate,resolution=60):
+def get_caiso_en(startdate,enddate,resolution=60):
     data_60 = np.zeros((24*(enddate-startdate).days,))
     with open('data/CAISO_EN.csv','r') as csvfile:
         reader = csv.reader(csvfile)
@@ -53,25 +53,28 @@ def get_casio_en(startdate,enddate,resolution=60):
             data.append(data_60[t])
     return data
 
-
-def get_comed(startdate,enddate):
-    # NOTE: DATA IS AT 5MIN RESOLUTION
-    # TO DO: Add functionality to change time resolution
-    with open('data/comed.csv','r') as csvfile:
+def get_ca_temp(startdate,enddate,resolution=10):
+    data_10 = np.zeros((24*6*(enddate-startdate).days,))
+    with open('data/sf_temp_2020.csv','r') as csvfile:
         reader = csv.reader(csvfile)
         next(reader)
-        data = []
         for row in reader:
-            # NOTE: you need to manually change the offset of your local machine compared to PST
-            d = datetime.datetime.fromtimestamp(int(row[0])/1000) - datetime.timedelta(hours=1)
-            if d < startdate:
+            day = datetime.datetime(int(row[0]),int(row[1]),int(row[2]))
+            if day > enddate or day < startdate:
                 continue
-            if d > enddate:
-                continue
-            data.append([d,float(row[1])])
-        data = sorted(data)
-        lmp = [data[i][1] for i in range(len(data))]
-    return lmp
+            d = (day-startdate).days
+            h = int(row[3])-1
+            m = int(float(row[4])/10)
+            data_10[d*24+h*6+m] = float(row[5])
+    
+    if resolution == 10:
+        return data_10
+    
+    data = []
+    for t in range(len(data_10)):
+        for n in range(int(10/resolution)):
+            data.append(data_10[t])
+    return data
             
 
 class Simulation:
@@ -96,7 +99,7 @@ class Simulation:
         for device in self.nw.devices:
             if self.nw.devices[device].active == False:
                 continue
-            self.nw.devices[device].is_charge()
+            self.nw.devices[device].is_on(self.nw.buildings[device[0],device[1]])
     
     def step_devices(self,t):
         for device in self.nw.devices:
@@ -124,14 +127,14 @@ class Simulation:
         results=sol.solve(self.controller,tee=False)
         
         # pass down prices to nodes
-        for (i,j) in self.nw.devices:
+        for (i,b,j) in self.nw.devices:
             for t in self.controller.time_set:
-                self.nw.devices[i,j].prices[t] = self.controller.xi[i,t]+self.nw.lmps[t]
-            if self.nw.devices[i,j].active == True:
-                if self.nw.devices[i,j].econ == True:
-                    self.nw.devices[i,j].x = self.controller.x[i,j,0].value
+                self.nw.devices[i,b,j].prices[t] = self.controller.xi[i,t]+self.nw.lmps[t]
+            if self.nw.devices[i,b,j].active == True:
+                if self.nw.devices[i,b,j].econ == True:
+                    self.nw.devices[i,b,j].x = self.controller.x[i,b,j,0].value
                 else:
-                    self.nw.devices[i,j].is_charge()
+                    self.nw.devices[i,b,j].is_charge()
         self.write_results(timestep)
         self.nw.step_nodes()
         self.step_devices(timestep)
@@ -167,8 +170,8 @@ class Simulation:
                 newline += 'NaN,'
         for i in list(self.nw.nodes.keys()):
             newline += str(self.nw.nodes[i].d[0])+','
-        for (i,j) in list(self.nw.devices.keys()):
-            newline += str(self.nw.devices[i,j].x*self.nw.devices[i,j].p)+','
+        for (i,b,j) in list(self.nw.devices.keys()):
+            newline += str(self.nw.devices[i,b,j].x*self.nw.devices[i,b,j].p)+','
         newline = newline[:-1]+'\n'
         f = open(self.path+'.txt','a')
         f.write(newline)
@@ -187,13 +190,13 @@ class Simulation:
                 print(str(t)+': optimization failed')
             
         # pass down prices to nodes
-        for (i,j) in self.nw.devices:
+        for (i,b,j) in self.nw.devices:
             for t in self.controller.time_set:
-                self.nw.devices[i,j].prices[t] = self.nw.lmps[t+1]
+                self.nw.devices[i,b,j].prices[t] = self.nw.lmps[t+1]
                 if (opt == 1 and t < len(self.controller.time_set)-1 
                     and len(self.controller.device_set) > 0):
                     if self.controller.xi[i,t+1].value != None:
-                        self.nw.devices[i,j].prices[t] += self.controller.xi[i,t+1].value
+                        self.nw.devices[i,b,j].prices[t] += self.controller.xi[i,t+1].value
                 
 class Sim_Plot:
     def __init__(self,nw,xstart=0,xend=None,ystart=0,yend=None,nh=12):

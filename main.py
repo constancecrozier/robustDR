@@ -1,6 +1,6 @@
 import datetime, random
 from components import (DistNetwork, EVCharger)
-from sim_platform import (Simulation, Sim_Plot, get_casio_lmps, get_casio_en)
+from sim_platform import (Simulation, Sim_Plot, get_caiso_lmps, get_caiso_en, get_ca_temp)
 
 # available household data
 hhs = ['bid_10007.csv','bid_10017.csv','bid_10021.csv',
@@ -47,26 +47,30 @@ evs = ['ev_35000617.csv','ev_35000817.csv','ev_35001017.csv',
        'ev_2911001617.csv','ev_2911002517.csv','ev_2911002617.csv',
        'ev_4441000317.csv']
 
-lmps = get_casio_lmps(datetime.datetime(2021,1,1),
-                      datetime.datetime(2021,2,1),resolution=5)
-lmp_est = get_casio_en(datetime.datetime(2021,1,1),
-                       datetime.datetime(2021,2,1),resolution=5)
+lmps = get_caiso_lmps(datetime.datetime(2020,1,1),
+                      datetime.datetime(2020,2,1),resolution=5)
+lmp_est = get_caiso_en(datetime.datetime(2020,1,1),
+                       datetime.datetime(2020,2,1),resolution=5)
+T_out = get_ca_temp(datetime.datetime(2020,1,1),
+                    datetime.datetime(2020,2,1),resolution=5)
+
 
 # create a 1 bus distribution network at transmission node #?
 network = DistNetwork(30,lmps,lmp_est,30.)
-
 # add households to each node
-for i in range(network.n_bus):
+for node_id in range(network.n_bus):
     for n in range(1):
-        network.add_household(i,'data/'+hhs[i],datetime.datetime(2018,1,1))
+        network.add_building(node_id,'Building '+str(n),'data/'+hhs[node_id],
+                             datetime.datetime(2018,1,1),T_out,
+                             heating=True,cooling=True)
 
 choices = ['econ','now']
 ev_no = 0
 # add EV chargers to each node
-for i in range(network.n_bus):
+for node_id in range(network.n_bus):
     for n in range(1):
-        network.add_EV(i,'EV'+str(n),'data/'+evs[ev_no],datetime.datetime(2018,1,1),
-                       choice=choices[i%2])
+        network.add_EV(node_id,'Building'+str(n),'EV'+str(n),'data/'+evs[ev_no],
+                       datetime.datetime(2018,1,1),choice='econ')#choices[i%2])
         ev_no += 1
         if ev_no == len(evs):
             ev_no = 0
@@ -74,14 +78,15 @@ for i in range(network.n_bus):
 # intialize simulation
 sim = Simulation(network)
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_halfsmart_proposed')
+sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_allsmart_proposed2')
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_uncontrolled',opt=False)
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_chargenow',opt=False)
 #sim.run_benchmark(2592,results_filepath='results/30EVs_1perNode_halfsmart_direct')
 
-plt = Sim_Plot(network,xstart=432,xend=1296,ystart=0,yend=120,nh=6)
-plt.plot_simulation('results/30EVs_1perNode_chargenow','Uncontrolled',0,'#440154')
-plt.plot_simulation('results/30EVs_1perNode_uncontrolled','Top-down',1,'#31688e')
-plt.plot_simulation('results/30EVs_1perNode_allsmart_proposed','Proposed',2,'#35b779')
-plt.plot_simulation('results/30EVs_1perNode_allsmart_direct','Direct',3,'#fde725')
+#plt = Sim_Plot(network,xstart=432,xend=1296,ystart=0,yend=120,nh=6)
+#plt.plot_simulation('results/30EVs_1perNode_chargenow','Uncontrolled',0,'#440154')
+#plt.plot_simulation('results/30EVs_1perNode_uncontrolled','Top-down',1,'#31688e')
+#plt.plot_simulation('results/30EVs_1perNode_allsmart_proposed','Proposed',2,'#35b779')
+#plt.plot_simulation('results/30EVs_1perNode_allsmart_direct','Direct',3,'#fde725')
 
-plt.save_plot('all_smart.png')
+#plt.save_plot('all_smart.png')

@@ -36,12 +36,12 @@ class DistNetwork:
         self.loaded_bdgs = {}
         self.buildings = {}
     
-    def add_building(self,node_id,building_id,filepath,startdate,R=7.5,C=3.,T0=20):
+    def add_building(self,node_id,building_id,filepath,startdate,T_out,heating=True,cooling=True,R=7.5,C=3.,T0=20):
         #self.nodes[node].buildings[name] = Building(node,name,R,C,T0)
-        self.buildings[node_id,building_id] = Building(node_id,building_id,R,C,T0)
+        self.buildings[node_id,building_id] = Building(node_id,building_id,R,C,T0,T_out)
         
         if filepath in self.loaded_bdgs:
-            self.nodes[node].d += self.loaded_bdgs[filepath]
+            self.nodes[node_id].d += self.loaded_bdgs[filepath]
             return None
         d = []
         n_days = int((self.len*self.n_t)/(12*24/self.t_step_min))+1
@@ -57,11 +57,17 @@ class DistNetwork:
                     continue
                 if date > end:
                     continue
-                d += [float(row[1])]*int(15/self.t_step_min)
+                p = float(row[1])
+                if heating == False:
+                    p -= float(row[2])
+                if cooling == False:
+                    p -= float(row[3])
+                d += [p]*int(15/self.t_step_min)
+                
             
             d = np.array(d[:self.len*self.n_t])
             self.loaded_bdgs[filepath] = d
-            self.nodes[node].d += self.loaded_bdgs[filepath]
+            self.nodes[node_id].d += self.loaded_bdgs[filepath]
             return None
         
     def step_nodes(self):
@@ -76,6 +82,8 @@ class DistNetwork:
                                                                 choice=choice)
         
     def add_HVAC(self,node_id,building_id,device_id,temperature,start,T_min,T_max):
+        self.buildings[node_id,building_id].T_min = T_min
+        self.buildings[node_id,building_id].T_max = T_max
         self.devices[node_id,building_id,device_id+'a'] = Heating(node_id, building_id, device_id,
                                                                   self.t_step,self.t_step_min, self.n_t,
                                                                   copy.deepcopy(self.lmps[:self.n_t]),
@@ -106,21 +114,21 @@ class Node:
         self.buildings = {}
         
 class Building:
-    def __init__(self,node_id,building_id,R,C,T0,T_out):
+    def __init__(self,node_id,building_id,R,C,T0,T_out,T_min,T_max):
         self.node_id = node_id
         self.building_id = building_id
         self.R = R
         self.C = C
         self.T = T0
-        self.Tout = T_out
+        self.T_out = T_out
         
         
 class Device:
     def __init__(self, node_id, building_id, device_id,
                  t_step, t_step_min, n_t, prices, p, eta,
-                 typ='deadline', interruptile=True,
-                 activity=None, T_min=None, T_max=None,
-                 choice='econ',c_thres=np.inf):
+                 typ='deadline', interruptile=True, 
+                 activity=None, startdate=None, T_min=0., T_max=100.,
+                 choice='econ', c_thres=np.inf):
         '''
         name (str): identifier of individual device
         t_step (float): size of timestep (hours)
@@ -154,7 +162,7 @@ class Device:
             raise Exception('type not recognized')
         if typ == 'thermal' and interruptile == False:
             raise Exception('thermal devices must be interruptible')
-        if typ == 'thermal' and (t_min == None and t_max == None):
+        if typ == 'thermal' and (T_min == 0. and T_max == 100.):
             raise Exception('thermal devices require a temperature bound')
         if typ == 'thermal' and (R == None or C == None):
             raise Exception('thermal devices require r and c values')
@@ -166,15 +174,13 @@ class Device:
         self.prices = prices
         
         # Device properties
-        self.device_id = name_id
+        self.device_id = device_id
         self.node_id = node_id
         self.building_id = building_id
         self.p = p
         self.eta = eta
         self.type = typ
         self.interruptile = interruptile
-        self.R = R
-        self.C = C
         self.T_min = T_min
         self.T_max = T_max
         
@@ -182,7 +188,6 @@ class Device:
         self.active = False # is device connected
         self.E = 0 # actual energy required (kWh)
         self.x = 0 # is device drawing power
-        self.T = T0
         self.deadline = n_t 
         self.charged = 0
         self.time_passed = 0 
@@ -194,9 +199,9 @@ class Device:
         else:
             self.econ = False
         if typ == 'deadline':
-            self.load_activity_log(activity,start)
-        else:
-            self.load_temperature_log(activity,start)
+            self.load_activity_log(activity,startdate)
+        #else:
+        #    self.load_temperature_log(activity,start)
             
     def consumer_choice_econ(self):
         # The consumer chooses the economy setting
@@ -210,14 +215,14 @@ class Device:
         # The consumer chooses the price threshold setting
         self.c_thres = c_thres
         
-    def is_charge(self):
+    def is_on(self,building):
         if self.econ is False:
             if self.prices[0] <= self.c_thres:
                 self.x = 1
             else:
                 self.x = 0
         else:
-            mpc = MPC_model(self,self.type,self.interruptible)
+            mpc = MPC_model(self,self.type,self.interruptible,building)
             opt = SolverFactory('cplex_direct',solver_io="python")
             results=opt.solve(mpc,tee=False)
             self.x = mpc.x[0].value
@@ -325,7 +330,7 @@ class Heating(Device):
     def __init__(self, name, t_step, t_step_min, n_t, prices, temp,
                  start, R, C, T0, T_min):
         super().__init__(name, t_step, t_step_min, n_t, prices, 4.0, 0.7,
-                         typ='thermal', T_min=T_min)
+                         typ='thermal', T_min=T_min, bound='Lower')
 
 
 #class AC(Device):
