@@ -21,7 +21,6 @@ def get_caiso_lmps(startdate,enddate,resolution=60):
             d = (day-startdate).days
             h = int(row[1])-1
             data_60[d*24+h] = float(row[2])
-    
     if resolution == 60:
         return data_60
     
@@ -54,27 +53,33 @@ def get_caiso_en(startdate,enddate,resolution=60):
     return data
 
 def get_ca_temp(startdate,enddate,resolution=10):
-    data_10 = np.zeros((24*6*(enddate-startdate).days,))
-    with open('data/sf_temp_2020.csv','r') as csvfile:
+    temp_10 = np.zeros((24*6*(enddate-startdate).days,))
+    ghi_10 = np.zeros((24*6*(enddate-startdate).days,))
+    with open('data/SF_2020.csv','r') as csvfile:
         reader = csv.reader(csvfile)
+        for i in range(3):
         next(reader)
         for row in reader:
             day = datetime.datetime(int(row[0]),int(row[1]),int(row[2]))
+            day -= datetime.timedelta(hours=8)
             if day > enddate or day < startdate:
                 continue
             d = (day-startdate).days
             h = int(row[3])-1
             m = int(float(row[4])/10)
-            data_10[d*24+h*6+m] = float(row[5])
+            temp_10[d*24+h*6+m] = float(row[6])
+            ghi_10[d*24+h*6+m] = float(row[5])
     
     if resolution == 10:
-        return data_10
+        return temp_10,ghi_10
     
-    data = []
-    for t in range(len(data_10)):
+    temp = []
+    ghi = []
+    for t in range(len(temp_10)):
         for n in range(int(10/resolution)):
-            data.append(data_10[t])
-    return data
+            temp.append(temp_10[t])
+            ghi.append(ghi_10[t])
+    return temp, ghi
             
 
 class Simulation:
@@ -96,14 +101,14 @@ class Simulation:
     
     def update_device_actions(self):
         # Each device makes its charging decisions
-        for device in self.nw.devices:
-            if self.nw.devices[device].active == False:
+        for (i,b,j) in self.nw.devices:
+            if self.nw.devices[i,b,j].active == False:
                 continue
-            self.nw.devices[device].is_on(self.nw.buildings[device[0],device[1]])
+            self.nw.devices[i,b,j].is_on(self.nw.buildings[i,b])
     
     def step_devices(self,t):
-        for device in self.nw.devices:
-            self.nw.devices[device].step(t)
+        for (i,b,j) in self.nw.devices:
+            self.nw.devices[i,b,j].step(t,self.nw.buildings[i,b])
         
     def timestep(self,opt,t):
         self.update_device_actions()
@@ -155,7 +160,7 @@ class Simulation:
         for i in list(self.nw.nodes.keys()):
             headers += 'demand'+str(i)+','
         for j in list(self.nw.devices.keys()):
-            headers += 'device'+str(j[0])+str('_')+str(j[1])+','
+            headers += 'device_'+str(j[0])+str('_')+str(j[1])+str(j[2])+','
         headers = headers[:-1]+'\n'
         f.write(headers)
         f.close()
@@ -217,17 +222,16 @@ class Sim_Plot:
         
         
         self.fig = plt.figure(figsize=(7,5))
-        #gs = GridSpec(2, 2, figure=self.fig)
-        #self.ax1 = self.fig.add_subplot(gs[0, :])
-        #self.ax2 = self.fig.add_subplot(gs[1,0])
-        #self.ax3 = self.fig.add_subplot(gs[1,1])
+        
+        self.fig2 = plt.figure(figsize=(7,3))
+        self.ax4 = self.fig2.add_subplot(111)
         gs = GridSpec(5, 2, figure=self.fig)
         self.ax1 = self.fig.add_subplot(gs[0:3, :])
         self.ax2 = self.fig.add_subplot(gs[3:,0])
         self.ax3 = self.fig.add_subplot(gs[3:,1])
 
         self.lmps = nw.lmps
-
+        
         # plotting demand
         d = None
         for i in nw.nodes:
@@ -345,8 +349,45 @@ class Sim_Plot:
         viol = sum([])
         self.ax3.bar([n],[sum([d for d in diff if d >0])*self.t_step],
                      label=name,color=c,zorder=2)
+        
+    def compare_individual(self,name1,name2):
+        cost = []
+        for j in self.p[name1]:
+            c1 = 0
+            c2 = 0
+            for t in range(len(self.p[name1][j])):
+                c1 += self.p[name1][j][t]*self.lmps[t]*self.t_step
+                c2 += self.p[name2][j][t]*self.lmps[t]*self.t_step
+            cost.append([c1,c2])
+        cost = sorted(cost)
+        
+        y1 = []
+        for j in range(len(cost)):
+            y1.append(cost[j][1]-cost[j][0])
+        return y1
+        
+    def plot_individuals(self,baseline,method1,method2,figname,show=True):
+        y1 = self.compare_individual(baseline,method1)
+        y2 = self.compare_individual(baseline,method2)
+        y = []
+        for j in range(len(y1)):
+            y.append([y1[j],y2[j]])
+        y = sorted(y)
+        y1 = []
+        y2 = []
+        for j in range(len(y)):
+            y1.append(y[j][0])
+            y2.append(y[j][1])
+        self.ax4.scatter(range(len(y1)),y1,c='r',label=method1)
+        self.ax4.scatter(range(len(y2)),y2,c='b',label=method2)
+        self.ax4.legend()
+        self.fig2.tight_layout()
+        self.fig2.savefig(figname,dpi=300)
+        
+        if show is True:
+            plt.show()
     
-    def save_plot(self,figname):
+    def save_plot(self,figname,show=True):
         self.ax2.set_xticks(self.xpts)
         self.ax3.set_xticks(self.xpts)
         self.ax2.set_xticklabels(self.ticks,rotation=45)
@@ -356,6 +397,7 @@ class Sim_Plot:
         self.ax1.legend(ncol=1)
         self.fig.tight_layout()
         self.fig.savefig(figname,dpi=300)
-        plt.show()
+        if show is True:
+            plt.show()
     
     

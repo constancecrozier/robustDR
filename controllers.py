@@ -54,21 +54,21 @@ def price_model(nw, requirements=True, M=1e6):
         return sum([model.xi[i,t] for t in model.time_set]) == 0
     
     # big M rule for price sensitiivty of devices
-    def c_def(model,i,j,t):
-        if t < model.deadline[i,j]:
-            return (model.lmp[t]+model.xi[i,t] <= model.c[i,j] + M*(1-model.x[i,j,t]))
+    def c_def(model,i,b,j,t):
+        if t < model.deadline[i,b,j]:
+            return (model.lmp[t]+model.xi[i,t] <= model.c[i,b,j] + M*(1-model.x[i,b,j,t]))
         else:
             return Constraint.Skip
         
-    def c_def2(model,i,j,t):
-        if t < model.deadline[i,j]:
-            return (model.c[i,j] <= model.lmp[t]+model.xi[i,t] + M*model.x[i,j,t])
+    def c_def2(model,i,b,j,t):
+        if t < model.deadline[i,b,j]:
+            return (model.c[i,b,j] <= model.lmp[t]+model.xi[i,t] + M*model.x[i,b,j,t])
         else:
             return Constraint.Skip
     
     # constrain observed price and charging behaviour
-    def x0(model,i,j):
-        return model.x[i,j,0] == nw.devices[i,j].x
+    def x0(model,i,b,j):
+        return model.x[i,b,j,0] == nw.devices[i,b,j].x
     
     def xi0(model,i):
         # find device at right bus
@@ -79,26 +79,31 @@ def price_model(nw, requirements=True, M=1e6):
         return model.xi[i,0] == nw.devices[chosen].prices[0]-nw.lmps[0]
     
     # energy requirement of the devices
-    def en_req(model,i,j):
-        return sum([model.x[i,j,t] for t in model.time_set])*model.p[i,j]*nw.t_step >= model.E[i,j] 
+    def en_req(model,i,b,j):
+        return (sum([model.x[i,b,j,t] for t in model.time_set])*model.p[i,b,j]*nw.t_step
+                >= model.E[i,b,j])
     
     # temperature bounds on buildings
     def temp(model,i,b,t):
         if t == 0:
             return model.T[i,b,t] == nw.buildings[i,b].T
         else:
-            delta = ((model.T[i,b,t]-nw.buildings[i,b].T_out[t])*nw.t_step
-                     /(nw.buildings[i,b].R*nw.buildings[i,b].C))
+            delta = ((model.T[i,b,t]-nw.buildings[i,b].T_out[t])
+                     /(nw.buildings[i,b].R*nw.buildings[i,b].C)
+                     +nw.buildings[i,b].GHI[t]/nw.buildings[i,b].C)*nw.t_step*3600
             for (i,b,j) in connected_to[i,b]:
-                delta += -model.eta[i,b,j]*model.x[i,b,j,t]*model.p[i,b,j,t]*nw.t_step/nw.buildings[i,b].C
+                delta += (model.eta[i,b,j]*model.x[i,b,j,t]
+                          *model.p[i,b,j,t]*nw.t_step*3600/nw.buildings[i,b].C)
             return model.T[i,b,t] == model.T[i,b,t-1] + delta
+         
         
     def temp_bound_upper(model,i,b,j,t):
         if nw.devices[i,b,j].T_max is not None:
             return model.T[i,b,t] <= nw.devices[i,b,j].T_max
         else:
             return Constraint.Skip
-    def temp_bound_upper(model,i,b,j,t):
+        
+    def temp_bound_lower(model,i,b,j,t):
         if nw.devices[i,b,j].T_min is not None:
             return model.T[i,b,t] >= nw.buildings[i,b,j].T_min
         else:
@@ -106,15 +111,15 @@ def price_model(nw, requirements=True, M=1e6):
     
     # transformer limit
     def sub1(model,t):
-        return (sum(model.x[i,j,t]*model.p[i,j] for (i,j) in model.device_set) <=
+        return (sum(model.x[i,b,j,t]*model.p[i,b,j] for (i,b,j) in model.device_set) <=
                 model.S - sum(model.d[i,t] for i in model.bus_set) + model.sigma[t])
     
     # objective
     def cost(model):
-        c = sum([model.c[i,j] for (i,j) in model.device_set])
-        for (i,j) in model.device_set:
+        c = sum([model.c[i,b,j] for (i,b,j) in model.device_set])
+        for (i,b,j) in model.device_set:
             for t in model.time_set:
-                c += model.x[i,j,t]*model.p[i,j]*model.lmp[t]
+                c += model.x[i,b,j,t]*model.p[i,b,j]*model.lmp[t]
             
         for t in model.time_set:
             c += model.sigma[t]*model.kappa
@@ -127,9 +132,9 @@ def price_model(nw, requirements=True, M=1e6):
     model.bus_set=Set(initialize=list(nw.nodes.keys()))
     model.device_set=Set(initialize=[d for d in list(nw.devices.keys()) if nw.devices[d].active==True])
     model.dead_dev_set=Set(initialize=[d for d in list(nw.devices.keys()) if nw.devices[d].active==True 
-                                       and nw.devices[c].typ == 'deadline'])
+                                       and nw.devices[d].type == 'deadline'])
     model.therm_dev_set=Set(initialize=[d for d in list(nw.devices.keys()) if nw.devices[d].active==True 
-                                       and nw.devices[c].typ == 'thermal'])
+                                       and nw.devices[d].type == 'thermal'])
     model.building_set=Set(initialize=[b for b in list(nw.buildings.keys())])
     
     # so that we can map thermal devices to buldings
@@ -156,7 +161,8 @@ def price_model(nw, requirements=True, M=1e6):
     model.x = Var(model.device_set, model.time_set, within=Boolean)
     model.xi = Var(model.bus_set, model.time_set)
     model.c = Var(model.device_set)
-    model.T = Var(model.building_set,model.time_set)
+    if len(model.therm_dev_set) > 0:
+        model.T = Var(model.building_set,model.time_set)
     model.sigma = Var(model.time_set, bounds=(0,1000))
     #model.sigma2 = Var(bounds=(0,1000))
 
@@ -167,23 +173,24 @@ def price_model(nw, requirements=True, M=1e6):
     model.en_req = Constraint(model.dead_dev_set,rule=en_req)
     model.xi0 = Constraint(model.bus_set,rule=xi0)
     model.x0 = Constraint(model.device_set,rule=x0)
-    model.temp = Constraint(model.building_set,model.time_set,rule=temp)
+    if len(model.therm_dev_set) > 0:
+        model.temp = Constraint(model.building_set,model.time_set,rule=temp)
     model.t_bound_l = Constraint(model.therm_dev_set,model.time_set,rule=temp_bound_lower)
     model.t_bound_u = Constraint(model.therm_dev_set,model.time_set,rule=temp_bound_upper)
     
-    for (i,j) in model.device_set:
+    for (i,b,j) in model.device_set:
         if True:#requirements is True:
-            for t in range(model.deadline[i,j],nw.n_t):
-                 model.x[i,j,t].fix(0)
+            for t in range(model.deadline[i,b,j],nw.n_t):
+                 model.x[i,b,j,t].fix(0)
         else:
-            if (nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed)*model.p[i,j]*nw.t_step >  model.E[i,j]:
-                for t in range(nw.devices[i,j].deadline_est-nw.devices[i,j].time_passed,nw.n_t):
-                    model.x[i,j,t].fix(0)
+            if (nw.devices[i,b,j].deadline_est-nw.devices[i,b,j].time_passed)*model.p[i,b,j]*nw.t_step >  model.E[i,b,j]:
+                for t in range(nw.devices[i,b,j].deadline_est-nw.devices[i,b,j].time_passed,nw.n_t):
+                    model.x[i,b,j,t].fix(0)
                     
             # Once our estimate of deadline is exceeded, assume vehicle will charge now
             else:
-                for t in range(int(model.E[i,j]/(model.p[i,j]*nw.t_step))+2,nw.n_t):
-                    model.x[i,j,t].fix(0)
+                for t in range(int(model.E[i,b,j]/(model.p[i,b,j]*nw.t_step))+2,nw.n_t):
+                    model.x[i,b.j,t].fix(0)
     
     if len(model.device_set) > 0:
         model.sub1 = Constraint(model.time_set,rule=sub1)
@@ -207,7 +214,7 @@ def MPC_model(device,typ,interruptible,building):
                 + model.sigma >= device.E)
     def unint(model,t):
         if t == 0:
-            return Constriant.Skip
+            return Constraint.Skip
         else:
             return model.x[t] >= model.x[t-1]
     
@@ -215,8 +222,10 @@ def MPC_model(device,typ,interruptible,building):
         if t == 0:
             return model.T[t] == building.T
         else:
-            return model.T[t] == (model.T[t-1] + (model.T[t]-building.T_out[t])/(building.R*building.C)
-                                  -device.eta*model.x[t]*device.p*device.t_step/building.C)
+            return model.T[t] == (model.T[t-1] + 
+                                  ((model.T[t]-building.T_out[t])/(building.R*building.C)
+                                   +building.k*building.GHI[t]/building.C
+                                   +device.p*self.x[t]*device.eta)*3600*device.t_step)
         
     def t_max(model,t):
         return model.T[t] <= device.T_max

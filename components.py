@@ -36,9 +36,11 @@ class DistNetwork:
         self.loaded_bdgs = {}
         self.buildings = {}
     
-    def add_building(self,node_id,building_id,filepath,startdate,T_out,heating=True,cooling=True,R=7.5,C=3.,T0=20):
+    def add_building(self,node_id,building_id,filepath,startdate,T_out,GHI,
+                     heating=True,cooling=True,k=5,R=round(1/60,3),C=1.5*1e7,
+                     T0=20):
         #self.nodes[node].buildings[name] = Building(node,name,R,C,T0)
-        self.buildings[node_id,building_id] = Building(node_id,building_id,R,C,T0,T_out)
+        self.buildings[node_id,building_id] = Building(node_id,building_id,self.t_step,k,R,C,T0,T_out,GHI)
         
         if filepath in self.loaded_bdgs:
             self.nodes[node_id].d += self.loaded_bdgs[filepath]
@@ -73,6 +75,8 @@ class DistNetwork:
     def step_nodes(self):
         for i in self.nodes:
             self.nodes[i].d = self.nodes[i].d[1:]
+        for (i,b) in self.buildings:
+            self.buildings[i,b].step_building()
     
     def add_EV(self,node_id,building_id,device_id,activity,start,choice='econ'):
         self.devices[node_id,building_id,device_id] = EVCharger(node_id, building_id, device_id,
@@ -81,9 +85,8 @@ class DistNetwork:
                                                                 copy.deepcopy(self.lmps[:self.n_t]),
                                                                 choice=choice)
         
-    def add_HVAC(self,node_id,building_id,device_id,temperature,start,T_min,T_max):
-        self.buildings[node_id,building_id].T_min = T_min
-        self.buildings[node_id,building_id].T_max = T_max
+        
+    def add_HVAC(self,node_id,building_id,device_id,T_min,T_max):
         self.devices[node_id,building_id,device_id+'a'] = Heating(node_id, building_id, device_id,
                                                                   self.t_step,self.t_step_min, self.n_t,
                                                                   copy.deepcopy(self.lmps[:self.n_t]),
@@ -92,15 +95,8 @@ class DistNetwork:
         self.devices[node_id,building_id,device_id+'b'] = Cooling(node_id, building_id, device_id,
                                                                   self.t_step,self.t_step_min, self.n_t,
                                                                   copy.deepcopy(self.lmps[:self.n_t]),
-                                                                  T_max)
-                     
-    
-
-            
-class Controller:
-    def __init__(self,network):
-        self.t_step = network.t_step
-        self.n_t = network.n_t
+                                                                  T_max)    
+        
         
         
 class Node:
@@ -114,19 +110,28 @@ class Node:
         self.buildings = {}
         
 class Building:
-    def __init__(self,node_id,building_id,R,C,T0,T_out,T_min,T_max):
+    def __init__(self,node_id,building_id,self.t_step,k,R,C,T0,T_out,GHI):
         self.node_id = node_id
         self.building_id = building_id
+        self.t_step = t_step
+        self.k = k
         self.R = R
         self.C = C
         self.T = T0
         self.T_out = T_out
+        self.GHI = GHI
         
+    def step_building(self):
+        # THIS UPDATES THE BUILDING TEMP CONSIDERING NO DEVICES
+        self.T += ((self.T-self.T_out[0])/(self.R*self.C)
+                   self.k*self.GHI[0]/self.C)*3600*self.t_step
+        self.T_out = self.T_out[1:]
+        self.GHI = self.GHI[1:]
         
 class Device:
     def __init__(self, node_id, building_id, device_id,
                  t_step, t_step_min, n_t, prices, p, eta,
-                 typ='deadline', interruptile=True, 
+                 typ='deadline', interruptible=True, 
                  activity=None, startdate=None, T_min=0., T_max=100.,
                  choice='econ', c_thres=np.inf):
         '''
@@ -180,7 +185,7 @@ class Device:
         self.p = p
         self.eta = eta
         self.type = typ
-        self.interruptile = interruptile
+        self.interruptible = interruptible
         self.T_min = T_min
         self.T_max = T_max
         
@@ -273,16 +278,27 @@ class Device:
     
     def load_temperature_log(self,path='',start=datetime.datetime(2018,1,1)):
         return None
+    
+    def step(self,timestep,building):
+        if self.type == 'deadline':
+            self.step_deadline(timestep)
+        else:
+            self.step_thermal(timestep,building)
+    
+    def step_thermal(self,timestep,building):
+        # adds device contribution to thermal
+        building.T += (self.p*1000*self.x*self.eta/building.C)*3600*self.t_step      
         
-    def step(self,timestep):
+        
+    def step_deadline(self,timestep):
         # update times of events
         for i in range(len(self.events)):
             self.events[i][0] -= 1
             self.events[i][1] -= 1
         
         # if charging update current charge
-        self.E -= self.p*self.x*self.t_step
-        self.charged += self.p*self.x*self.t_step
+        self.E -= self.p*self.x*self.eta*self.t_step
+        self.charged += self.p*self.x*self.eta* self.t_step
         
         if self.active is True:
             self.deadline -= 1
@@ -295,12 +311,14 @@ class Device:
             self.charged = 0
             self.time_passed = 0
             self.active = False
-            print(str(timestep)+': Disconnecting device '+str(self.id)+' with no unmet demand')
+            print(str(timestep)+': Disconnecting device '+self.device_id+' at Node '
+                  +str(self.node_id))
             self.events.pop(0)
         
         # if device has run out of time without fulfilling needs
         if self.deadline <= 0 and self.active is True:
-            print(str(timestep)+': Disconnecting device '+str(self.id)+' with '+str(self.E)+'kWh unmet demand')
+            print(str(timestep)+': Disconnecting device '+self.device_id+' at Node '
+                  +str(self.node_id)+' with '+str(self.E)+'kWh unmet demand')
             self.E = 0
             self.x = 0
             self.charged = 0
@@ -315,22 +333,33 @@ class Device:
             #self.deadline_est = 12*8
             self.E = self.events[0][2]
             self.deadline = copy.deepcopy(self.events[0][1])
-            print(str(timestep)+': Activating device '+str(self.id)+' with '
-                  +str(self.E)+'kWh of demand')
-                                         
+            print(str(timestep)+': Activating device '+self.device_id+' at Node '
+                  +str(self.node_id))
+                                      
 
 class EVCharger(Device):
     def __init__(self, node_id, building_id, device_id, activity, start, t_step, 
                  t_step_min, n_t, prices, choice='econ'):
         super().__init__(node_id, building_id, device_id, t_step, t_step_min, 
-                         n_t, prices, 7.0, 0.9, typ='deadline', interruptile=True,
+                         n_t, prices, 7.0, 0.9, typ='deadline', interruptible=True,
                          activity=activity, startdate=start, choice=choice)
                                          
 class Heating(Device):
-    def __init__(self, name, t_step, t_step_min, n_t, prices, temp,
-                 start, R, C, T0, T_min):
-        super().__init__(name, t_step, t_step_min, n_t, prices, 4.0, 0.7,
-                         typ='thermal', T_min=T_min, bound='Lower')
+    def __init__(self, node_id, building_id, device_id, t_step, t_step_min, n_t, 
+                 prices, T_min):
+        # p_heat = 15*0.3 thermal
+        # hspf = 10
+        super().__init__(node_id, building_id, device_id, t_step, t_step_min, 
+                         n_t, prices, round(0.3*15/10,3), 10., typ='thermal', 
+                         T_min=T_min)
+        
+class Cooling(Device):
+    def __init__(self, ):
+        # p_cool = 3.5*2 thermal
+        # seer = 20
+        super().__init__(node_id, building_id, device_id, t_step, t_step_min, 
+                         n_t, prices, round(3.5*2/20,3), 20., typ='thermal', 
+                         T_max=T_max)
 
 
 #class AC(Device):
