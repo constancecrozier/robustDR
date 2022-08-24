@@ -58,7 +58,7 @@ def get_ca_temp(startdate,enddate,resolution=10):
     with open('data/SF_2020.csv','r') as csvfile:
         reader = csv.reader(csvfile)
         for i in range(3):
-        next(reader)
+            next(reader)
         for row in reader:
             day = datetime.datetime(int(row[0]),int(row[1]),int(row[2]))
             day -= datetime.timedelta(hours=8)

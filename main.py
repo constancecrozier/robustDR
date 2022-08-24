@@ -57,13 +57,13 @@ T_out,GHI = get_ca_temp(datetime.datetime(2020,1,1),
 
 
 # create a 1 bus distribution network at transmission node #?
-network = DistNetwork(30,lmps,lmp_est,30.)
+network = DistNetwork(1,lmps,lmp_est,30.)
 # add households to each node
 for node_id in range(network.n_bus):
     for n in range(1):
         network.add_building(node_id,'Building'+str(n),'data/'+hhs[node_id],
                              datetime.datetime(2018,1,1),T_out,GHI,
-                             heating=False,cooling=False)
+                             heating=False,cooling=False, T0=20.2)
 
 '''        
 choices = ['econ','now']
@@ -81,7 +81,7 @@ for node_id in range(network.n_bus):
 # add HVACs to each building
 for node_id in range(network.n_bus):
     for n in range(1):
-        network.add_HVAC(node_id,'Building'+str(n),'HVAC'+str(n),20,25)
+        network.add_HVAC(node_id,'Building'+str(n),'HVAC'+str(n),20,24)
         
 
 # intialize simulation

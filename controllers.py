@@ -89,11 +89,11 @@ def price_model(nw, requirements=True, M=1e6):
             return model.T[i,b,t] == nw.buildings[i,b].T
         else:
             delta = ((model.T[i,b,t]-nw.buildings[i,b].T_out[t])
-                     /(nw.buildings[i,b].R*nw.buildings[i,b].C)
-                     +nw.buildings[i,b].GHI[t]/nw.buildings[i,b].C)*nw.t_step*3600
+                     *nw.buildings[i,b].iR*nw.buildings[i,b].iC
+                     +nw.buildings[i,b].GHI[t]*nw.buildings[i,b].iC)*nw.t_step*3600
             for (i,b,j) in connected_to[i,b]:
                 delta += (model.eta[i,b,j]*model.x[i,b,j,t]
-                          *model.p[i,b,j,t]*nw.t_step*3600/nw.buildings[i,b].C)
+                          *model.p[i,b,j]*nw.t_step*3.6e6*nw.buildings[i,b].iC)
             return model.T[i,b,t] == model.T[i,b,t-1] + delta
          
         
@@ -105,7 +105,7 @@ def price_model(nw, requirements=True, M=1e6):
         
     def temp_bound_lower(model,i,b,j,t):
         if nw.devices[i,b,j].T_min is not None:
-            return model.T[i,b,t] >= nw.buildings[i,b,j].T_min
+            return model.T[i,b,t] >= nw.devices[i,b,j].T_min
         else:
             return Constraint.Skip
     
@@ -223,17 +223,24 @@ def MPC_model(device,typ,interruptible,building):
             return model.T[t] == building.T
         else:
             return model.T[t] == (model.T[t-1] + 
-                                  ((model.T[t]-building.T_out[t])/(building.R*building.C)
-                                   +building.k*building.GHI[t]/building.C
-                                   +device.p*self.x[t]*device.eta)*3600*device.t_step)
+                                  ((building.T_out[t-1]-model.T[t-1])*building.iR*building.iC
+                                   +building.k*building.GHI[t]*building.iC
+                                   +device.p*model.x[t-1]*device.eta*1000*building.iC)
+                                  *3600*device.t_step)
         
     def t_max(model,t):
-        return model.T[t] <= device.T_max
+        if t == 0:
+            return Constraint.Skip
+        else:
+            return model.T[t] <= device.T_max
     def t_min(model,t):
-        return model.T[t] >= device.T_min
+        if t == 0:
+            return Constraint.Skip
+        else:
+            return model.T[t] >= device.T_min
     
     def cost(model):
-        return sum([model.x[t]*model.c[t] for t in model.time_set]) + model.sigma*1e8
+        return sum([model.x[t]*model.c[t] for t in model.time_set]) #+ model.sigma*1e8
     
     model = ConcreteModel()
     
@@ -245,7 +252,10 @@ def MPC_model(device,typ,interruptible,building):
     
     # Variables
     model.x = Var(model.time_set, within=Boolean)
-    model.sigma = Var(bounds=(0,10))
+    if False:#typ == 'deadline':
+        model.sigma = Var(bounds=(0,10))
+    else:
+        model.sigma = Param(rule=0)
     
     # Constraints
     if typ == 'deadline':
@@ -256,10 +266,8 @@ def MPC_model(device,typ,interruptible,building):
     else:
         model.T = Var(model.time_set)
         model.temp = Constraint(model.time_set,rule=temp)
-        if bound == 'Lower':
-            model.bound = Constraint(model.time_set,rule=t_min)
-        else:
-            model.bound = Constraint(model.time_set,rule=t_max)
+        model.bound_min = Constraint(model.time_set,rule=t_min)
+        #model.bound_max = Constraint(model.time_set,rule=t_max)
         
     
     model.Objective = Objective(rule=cost, sense=minimize)

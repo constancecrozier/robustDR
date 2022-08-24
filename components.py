@@ -37,10 +37,9 @@ class DistNetwork:
         self.buildings = {}
     
     def add_building(self,node_id,building_id,filepath,startdate,T_out,GHI,
-                     heating=True,cooling=True,k=5,R=round(1/60,3),C=1.5*1e7,
+                     heating=True,cooling=True,k=5,iR=60,iC=6.667e-8,
                      T0=20):
-        #self.nodes[node].buildings[name] = Building(node,name,R,C,T0)
-        self.buildings[node_id,building_id] = Building(node_id,building_id,self.t_step,k,R,C,T0,T_out,GHI)
+        self.buildings[node_id,building_id] = Building(node_id,building_id,self.t_step,k,iR,iC,T0,T_out,GHI)
         
         if filepath in self.loaded_bdgs:
             self.nodes[node_id].d += self.loaded_bdgs[filepath]
@@ -91,11 +90,11 @@ class DistNetwork:
                                                                   self.t_step,self.t_step_min, self.n_t,
                                                                   copy.deepcopy(self.lmps[:self.n_t]),
                                                                   T_min)
-        
+        '''
         self.devices[node_id,building_id,device_id+'b'] = Cooling(node_id, building_id, device_id,
                                                                   self.t_step,self.t_step_min, self.n_t,
                                                                   copy.deepcopy(self.lmps[:self.n_t]),
-                                                                  T_max)    
+                                                                  T_max)'''    
         
         
         
@@ -110,21 +109,21 @@ class Node:
         self.buildings = {}
         
 class Building:
-    def __init__(self,node_id,building_id,self.t_step,k,R,C,T0,T_out,GHI):
+    def __init__(self,node_id,building_id,t_step,k,iR,iC,T0,T_out,GHI):
         self.node_id = node_id
         self.building_id = building_id
         self.t_step = t_step
         self.k = k
-        self.R = R
-        self.C = C
+        self.iR = iR
+        self.iC = iC
         self.T = T0
         self.T_out = T_out
         self.GHI = GHI
         
     def step_building(self):
         # THIS UPDATES THE BUILDING TEMP CONSIDERING NO DEVICES
-        self.T += ((self.T-self.T_out[0])/(self.R*self.C)
-                   self.k*self.GHI[0]/self.C)*3600*self.t_step
+        self.T += ((self.T_out[0]-self.T)*self.iR*self.iC
+                    +self.k*self.GHI[0]*self.iC)*3600*self.t_step
         self.T_out = self.T_out[1:]
         self.GHI = self.GHI[1:]
         
@@ -165,12 +164,10 @@ class Device:
             raise Exception('choice not recognized')
         if typ not in ['deadline', 'thermal']:
             raise Exception('type not recognized')
-        if typ == 'thermal' and interruptile == False:
+        if typ == 'thermal' and interruptible == False:
             raise Exception('thermal devices must be interruptible')
         if typ == 'thermal' and (T_min == 0. and T_max == 100.):
             raise Exception('thermal devices require a temperature bound')
-        if typ == 'thermal' and (R == None or C == None):
-            raise Exception('thermal devices require r and c values')
             
         # Simulation properties
         self.t_step = t_step
@@ -190,7 +187,7 @@ class Device:
         self.T_max = T_max
         
         # Initialization
-        self.active = False # is device connected
+        self.active = True # is device connected
         self.E = 0 # actual energy required (kWh)
         self.x = 0 # is device drawing power
         self.deadline = n_t 
@@ -229,12 +226,12 @@ class Device:
         else:
             mpc = MPC_model(self,self.type,self.interruptible,building)
             opt = SolverFactory('cplex_direct',solver_io="python")
-            results=opt.solve(mpc,tee=False)
+            results=opt.solve(mpc,tee=True)
             self.x = mpc.x[0].value
         
     def load_activity_log(self,path='',start=datetime.datetime(2018,1,1)):
         self.events = []
-        
+        self.active = False
         av_l = []
         av_en = []
         n = 0
@@ -287,7 +284,9 @@ class Device:
     
     def step_thermal(self,timestep,building):
         # adds device contribution to thermal
-        building.T += (self.p*1000*self.x*self.eta/building.C)*3600*self.t_step      
+        building.T += (self.p*1000*self.x*self.eta*building.iC)*3600*self.t_step
+        print(str(timestep),end=': ')
+        print(building.T)
         
         
     def step_deadline(self,timestep):
@@ -354,11 +353,12 @@ class Heating(Device):
                          T_min=T_min)
         
 class Cooling(Device):
-    def __init__(self, ):
+    def __init__(self, node_id, building_id, device_id, t_step, t_step_min, n_t, 
+                 prices, T_max):
         # p_cool = 3.5*2 thermal
         # seer = 20
         super().__init__(node_id, building_id, device_id, t_step, t_step_min, 
-                         n_t, prices, round(3.5*2/20,3), 20., typ='thermal', 
+                         n_t, prices, round(3.5*2/20,3), -20., typ='thermal', 
                          T_max=T_max)
 
 
