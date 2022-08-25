@@ -52,12 +52,12 @@ lmps = get_caiso_lmps(datetime.datetime(2021,1,1),
 
 lmp_est = get_caiso_en(datetime.datetime(2021,1,1),
                        datetime.datetime(2021,2,1),resolution=5)
-T_out,GHI = get_ca_temp(datetime.datetime(2020,1,1),
-                        datetime.datetime(2020,2,1),resolution=5)
+T_out,GHI = get_ca_temp(datetime.datetime(2020,8,6),
+                        datetime.datetime(2020,9,1),resolution=5)
 
 
 # create a 1 bus distribution network at transmission node #?
-network = DistNetwork(1,lmps,lmp_est,30.)
+network = DistNetwork(1,lmps,lmp_est,30.,n_t=12*4)
 # add households to each node
 for node_id in range(network.n_bus):
     for n in range(1):
@@ -81,17 +81,17 @@ for node_id in range(network.n_bus):
 # add HVACs to each building
 for node_id in range(network.n_bus):
     for n in range(1):
-        network.add_HVAC(node_id,'Building'+str(n),'HVAC'+str(n),20,24)
+        network.add_HVAC(node_id,'Building'+str(n),'HVAC'+str(n),20,22)
         
 
 # intialize simulation
 sim = Simulation(network)
-sim.run_simulation(24*12,results_filepath='results/sim2',opt=False)
+#sim.run_simulation(24*12,results_filepath='results/sim2',opt=False)
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_halfsmart_proposed2')
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_allsmart_proposed2')
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_halfuncontrolled',opt=False)
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_chargenow',opt=False)
-#sim.run_benchmark(2592,results_filepath='results/30EVs_1perNode_halfsmart_direct')
+sim.run_benchmark(24*12,results_filepath='results/sim3')
 
 
 

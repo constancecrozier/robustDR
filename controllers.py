@@ -240,6 +240,7 @@ def MPC_model(device,typ,interruptible,building):
             return model.T[t] >= device.T_min
     
     def cost(model):
+        #return sum([model.x[t]*model.c[t]*(1-t/len(model.time_set)) for t in model.time_set]) #+ model.sigma*1e8
         return sum([model.x[t]*model.c[t] for t in model.time_set]) #+ model.sigma*1e8
     
     model = ConcreteModel()
@@ -267,9 +268,8 @@ def MPC_model(device,typ,interruptible,building):
         model.T = Var(model.time_set)
         model.temp = Constraint(model.time_set,rule=temp)
         model.bound_min = Constraint(model.time_set,rule=t_min)
-        #model.bound_max = Constraint(model.time_set,rule=t_max)
+        model.bound_max = Constraint(model.time_set,rule=t_max)
         
-    
     model.Objective = Objective(rule=cost, sense=minimize)
     
     return model
@@ -291,10 +291,10 @@ def direct_control_model(nw):
         return d
     def lmps(model,t):
         return nw.lmps[t]
-    def device_rating(model,i,j):
-        return nw.devices[i,j].p
-    def device_consumption(model,i,j):
-        return nw.devices[i,j].E
+    def device_rating(model,i,b,j):
+        return nw.devices[i,b,j].p
+    def device_consumption(model,i,b,j):
+        return nw.devices[i,b,j].E
     def sub1_lim(model):
         return nw.S
     def sub2_lim(model,i):
@@ -304,29 +304,57 @@ def direct_control_model(nw):
     
     # constraints
     def en_req(model,i,j):
-        return sum([model.x[i,j,t] for t in model.time_set])*model.p[i,j]*nw.t_step >= model.E[i,j]
+        return sum([model.x[i,b,j,t] for t in model.time_set])*model.p[i,b,j]*nw.t_step >= model.E[i,b,j]
     def sub1(model,t):
-        return (sum(model.x[i,j,t]*model.p[i,j] for (i,j) in model.device_set) <=
+        return (sum(model.x[i,b,j,t]*model.p[i,b,j] for (i,b,j) in model.device_set) <=
                 model.S - sum(model.d[i,t] for i in model.bus_set) + model.sigma[t])
+    def temp(model,i,b,t):
+        if t == 0:
+            return model.T[i,b,t] == nw.buildings[i,b].T
+        else:
+            thr = ((nw.buildings[i,b].T_out[t-1]-model.T[i,b,t-1])
+                   *nw.buildings[i,b].iR*nw.buildings[i,b].iC
+                   +nw.buildings[i,b].k*nw.buildings[i,b].GHI[t]*nw.buildings[i,b].iC)
+            for (i,b,j) in connected_to[i,b]:
+                thr += (model.p[i,b,j]*model.x[i,b,j,t-1]
+                        *nw.devices[i,b,j].eta*1000*nw.buildings[i,b].iC)
+            return model.T[i,b,t] == model.T[i,b,t-1] + thr*3600*nw.t_step
+    def t_lower(model,i,b,j,t):
+        return model.T[i,b,t] >= nw.devices[i,b,j].T_min
+    def t_upper(model,i,b,j,t):
+        return model.T[i,b,t] <= nw.devices[i,b,j].T_max
     
     # objective
     def cost(model):
         c = 0.
-        for (i,j) in model.device_set:
+        for (i,b,j) in model.device_set:
             for t in model.time_set:
-                c += model.x[i,j,t]*model.p[i,j]*model.lmp[t]
+                c += model.x[i,b,j,t]*model.p[i,b,j]*model.lmp[t]
         for t in model.time_set:
             c += model.sigma[t]*model.kappa
         return c
-
 
     model = ConcreteModel()
     
     # Sets
     model.bus_set=Set(initialize=list(nw.nodes.keys()))
     model.device_set=Set(initialize=[d for d in list(nw.devices.keys()) 
-                                     if (nw.devices[d].active==True and nw.devices[d].econ==True)])
+                                     if nw.devices[d].active==True])
+    model.dead_dev_set=Set(initialize=[d for d in list(nw.devices.keys()) 
+                                       if nw.devices[d].active==True 
+                                       and nw.devices[d].type == 'deadline'])
+    model.therm_dev_set=Set(initialize=[d for d in list(nw.devices.keys()) 
+                                        if nw.devices[d].active==True 
+                                        and nw.devices[d].type == 'thermal'])
     model.time_set=Set(initialize=list(range(nw.n_t)))
+    model.building_set=Set(initialize=[b for b in list(nw.buildings.keys())])
+    
+    # so that we can map thermal devices to buldings
+    connected_to = {}
+    for (i,b) in list(nw.buildings.keys()):
+        connected_to[i,b] = []
+    for d in model.therm_dev_set:
+        connected_to[d[0],d[1]].append(d)
 
     # Parameters
     model.d = Param(model.bus_set,model.time_set,rule=demand)
@@ -340,13 +368,17 @@ def direct_control_model(nw):
     # Variables
     model.x = Var(model.device_set, model.time_set, within=Boolean)
     model.sigma = Var(model.time_set, bounds=(0,1000))
+    model.T = Var(model.building_set, model.time_set)
 
     # Constraints 
-    model.en_req = Constraint(model.device_set,rule=en_req)
+    model.en_req = Constraint(model.dead_dev_set,rule=en_req)
+    model.temp = Constraint(model.building_set, model.time_set, rule=temp)
+    model.t_bound_l = Constraint(model.therm_dev_set, model.time_set, rule=t_lower)
+    model.t_bound_u = Constraint(model.therm_dev_set, model.time_set, rule=t_upper)
     
-    for (i,j) in model.device_set:
+    for (i,b,j) in model.dead_dev_set:
         for t in range(nw.devices[i,j].deadline,nw.n_t):
-            model.x[i,j,t].fix(0)
+            model.x[i,b,j,t].fix(0)
     
     if len(model.device_set) > 0:
         model.sub1 = Constraint(model.time_set,rule=sub1)
