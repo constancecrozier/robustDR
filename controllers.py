@@ -224,7 +224,7 @@ def MPC_model(device,typ,interruptible,building):
         else:
             return model.T[t] == (model.T[t-1] + 
                                   ((building.T_out[t-1]-model.T[t-1])*building.iR*building.iC
-                                   +building.k*building.GHI[t]*building.iC
+                                   +building.k*building.GHI[t-1]*building.iC
                                    +device.p*model.x[t-1]*device.eta*1000*building.iC)
                                   *3600*device.t_step)
         
@@ -304,7 +304,7 @@ def direct_control_model(nw):
     
     # constraints
     def en_req(model,i,j):
-        return sum([model.x[i,b,j,t] for t in model.time_set])*model.p[i,b,j]*nw.t_step >= model.E[i,b,j]
+        return sum([model.x[i,b,j,t]*model.eta[i,b,j,t] for t in model.time_set])*model.p[i,b,j]*nw.t_step >= model.E[i,b,j]
     def sub1(model,t):
         return (sum(model.x[i,b,j,t]*model.p[i,b,j] for (i,b,j) in model.device_set) <=
                 model.S - sum(model.d[i,t] for i in model.bus_set) + model.sigma[t])
@@ -314,7 +314,7 @@ def direct_control_model(nw):
         else:
             thr = ((nw.buildings[i,b].T_out[t-1]-model.T[i,b,t-1])
                    *nw.buildings[i,b].iR*nw.buildings[i,b].iC
-                   +nw.buildings[i,b].k*nw.buildings[i,b].GHI[t]*nw.buildings[i,b].iC)
+                   +nw.buildings[i,b].k*nw.buildings[i,b].GHI[t-1]*nw.buildings[i,b].iC)
             for (i,b,j) in connected_to[i,b]:
                 thr += (model.p[i,b,j]*model.x[i,b,j,t-1]
                         *nw.devices[i,b,j].eta*1000*nw.buildings[i,b].iC)
@@ -361,7 +361,7 @@ def direct_control_model(nw):
     model.lmp = Param(model.time_set,rule=lmps)
     model.p = Param(model.device_set,rule=device_rating)
     model.S = Param(rule=sub1_lim)
-    model.E = Param(model.device_set,rule=device_consumption)
+    model.E = Param(model.dead_dev_set,rule=device_consumption)
     model.xi = Param(model.bus_set, model.time_set,rule=0)
     model.kappa = Param(rule=slack)
 

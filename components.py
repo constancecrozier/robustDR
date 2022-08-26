@@ -85,7 +85,10 @@ class DistNetwork:
                                                                 choice=choice)
         
         
-    def add_HVAC(self,node_id,building_id,device_id,T_min,T_max):
+    def add_HVAC(self,node_id,building_id,device_id,T_min,T_max,T0=None):
+        if T0 is not None:
+            self.buildings[node_id,building_id].T0 = T0
+        
         
         self.devices[node_id,building_id,device_id+'a'] = Heating(node_id, building_id, device_id,
                                                                   self.t_step,self.t_step_min, self.n_t,
@@ -127,7 +130,6 @@ class Building:
                     +self.k*self.GHI[0]*self.iC)*3600*self.t_step
         self.T_out = self.T_out[1:]
         self.GHI = self.GHI[1:]
-        print(self.T)
         
 class Device:
     def __init__(self, node_id, building_id, device_id,
@@ -228,6 +230,7 @@ class Device:
         else:
             mpc = MPC_model(self,self.type,self.interruptible,building)
             opt = SolverFactory('cplex_direct',solver_io="python")
+            opt.options['timelimit'] = 20
             results=opt.solve(mpc,tee=False)
             self.x = mpc.x[0].value
         

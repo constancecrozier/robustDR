@@ -129,6 +129,8 @@ class Simulation:
     def timestep_benchmark(self,timestep):
         self.controller = direct_control_model(self.nw)
         sol = SolverFactory('cplex_direct',solver_io="python")
+        #sol.options['mip_tolerances_absmipgap'] = 1e-3
+        sol.options['timelimit'] = 20
         results=sol.solve(self.controller,tee=False)
         
         # pass down prices to nodes
@@ -181,11 +183,14 @@ class Simulation:
         f = open(self.path+'.txt','a')
         f.write(newline)
         f.close()
-    
+    #netoptimality
+    #comptol
+    #optimality
     def update_prices(self,opt,t):
         self.controller = price_model(self.nw)
         if opt == 1:
             sol = SolverFactory('cplex_direct',solver_io="python")
+            #sol.options['time_limit'] = 1
             results=sol.solve(self.controller,tee=False)
             try:
                 if self.controller.sigma[0].value > 1e-3:
