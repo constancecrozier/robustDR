@@ -52,20 +52,21 @@ lmps = get_caiso_lmps(datetime.datetime(2021,1,1),
 
 lmp_est = get_caiso_en(datetime.datetime(2021,1,1),
                        datetime.datetime(2021,2,1),resolution=5)
-T_out,GHI = get_ca_temp(datetime.datetime(2020,8,6),
-                        datetime.datetime(2020,9,1),resolution=5)
+T_out,GHI = get_ca_temp(datetime.datetime(2020,7,26),
+                        datetime.datetime(2020,8,26),resolution=5)
 
 #lower bound, upper bound, T0
-temps = [[16,24,19],[18,21,19],[19,22,19.5],[20,22,21.5],[16,20,16.2],
-         [17,20,18],[19,24,20.2],[18,24,19.6],[20,22,20.3],[21,24,21.9]]
+temps = [[19,22,19.5],[16,24,19],[18,21,19],[20,22,21.5],[16,20,16.5],
+         [17,20,18],[19,24,20.2],[18,24,19.6],[20,22,20.5],[21,24,21.9]]
 # create a 1 bus distribution network at transmission node #?
-network = DistNetwork(10,lmps,lmp_est,10.,n_t=12*6)
+network = DistNetwork(1,lmps,lmp_est,1.,n_t=12*6)
+#network = DistNetwork(30,lmps,lmp_est,30.,n_t=12*24)
 # add households to each node
 for node_id in range(network.n_bus):
-    for n in range(10):
-        network.add_building(node_id,'Building'+str(n),'data/'+hhs[node_id],
-                             datetime.datetime(2018,1,1),T_out,GHI,
-                             heating=False,cooling=False, T0=temps[node_id][2])
+    for n in range(1):
+        network.add_building(node_id,'Building'+str(n),'data/'+hhs[node_id%10],
+                             datetime.datetime(2018,7,26),T_out,GHI,
+                             heating=False,cooling=False, T0=temps[node_id%10][2]-0.5+0.1*int(node_id))
 
 '''        
 choices = ['econ','now']
@@ -77,36 +78,44 @@ for node_id in range(network.n_bus):
                        datetime.datetime(2018,1,1),choice=choices[node_id%2])
         ev_no += 1
         if ev_no == len(evs):
-            ev_no = 0
-'''
+            ev_no = 0#'''
 
 # add HVACs to each building
+#'''
 for node_id in range(network.n_bus):
-    for n in range(10):
+    for n in range(1):
         network.add_HVAC(node_id,'Building'+str(n),'HVAC'+str(n),
-                         temps[node_id][0],temps[node_id][1])
+                         temps[node_id%10][0],temps[node_id%10][1])#'''
         
 
 # intialize simulation
 sim = Simulation(network)
-#sim.run_simulation(24*12,results_filepath='results/sim2',opt=False)
+sim.run_simulation(12*24,results_filepath='results/sim')
+#sim.run_simulation(36*12,results_filepath='results/sim1')
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_halfsmart_proposed2')
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_allsmart_proposed2')
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_halfuncontrolled',opt=False)
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_chargenow',opt=False)
-sim.run_benchmark(36*12,results_filepath='results/sim3')
+#sim.run_benchmark(36*12,results_filepath='results/sim3')
 
 
 
 
-#plt = Sim_Plot(network,xstart=12*12,xend=12*36,ystart=0,yend=120,nh=6)
-#plt.plot_simulation('results/sim2','Uncontrolled',0,'#440154')
-#plt.plot_simulation('results/sim3','Top-down',1,'#31688e')
+#plt = Sim_Plot(network,xstart=6*12,xend=12*30,ystart=0,yend=38,nh=6)
+#plt.plot_simulation('results/sim','Default',0,'#440154')
+
+#plt.plot_simulation('results/sim2','Default',0,'#440154')
+#plt.plot_simulation('results/sim2','Top-down',1,'#31688e')
+#plt.plot_simulation('results/sim1','Proposed',2,'#35b779')
+#plt.plot_simulation('results/sim3','Direct',3,'#fde725')
+
+#plt = Sim_Plot(network,xstart=36*12,xend=12*108,ystart=0,yend=80,nh=6)
 #plt.plot_simulation('results/30EVs_1perNode_chargenow','Uncontrolled',0,'#440154')
 #plt.plot_simulation('results/30EVs_1perNode_uncontrolled','Top-down',1,'#31688e')
 #plt.plot_simulation('results/30EVs_1perNode_allsmart_proposed','Proposed',2,'#35b779')
 #plt.plot_simulation('results/30EVs_1perNode_allsmart_direct','Direct',3,'#fde725')
 
 #plt.save_plot('heat.png')
+plt.save_plot('test.png')
 
 #plt.plot_individuals('Top-down','Proposed','Direct','individuals.png')

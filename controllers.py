@@ -36,16 +36,32 @@ def price_model(nw, requirements=True, M=1e6):
     def sub2_lim(model,i):
         return nw.nodes[i].P
     def slack(model):
-        return 1e6
+        return 1e8
     def deadline(model,i,b,j):
         # first check whether vehicle is accepting high prices
-        if nw.devices[i,b,j].x == 1 and nw.devices[i,b,j].prices[0] > 1e3:
-            # return minimum time to charge, will fully constrain device
-            return int(model.E[i,b,j]/(model.p[i,b,j]*nw.t_step))+1
-        if requirements is True:
-            return nw.devices[i,b,j].deadline
+        if (i,b,j) in model.dead_dev_set:
+            if nw.devices[i,b,j].x == 1 and nw.devices[i,b,j].prices[0] > 1e3:
+                # return minimum time to charge, will fully constrain device
+                return int(model.E[i,b,j]/(model.p[i,b,j]*nw.t_step))+1
+            if requirements is True:
+                return nw.devices[i,b,j].deadline
+            else:
+                return nw.devices[i,b,j].deadline_est-nw.devices[i,j].time_passed
         else:
-            return nw.devices[i,b,j].deadline_est-nw.devices[i,j].time_passed
+            return nw.n_t+1 
+    def alpha(model,i,b,j,t):
+        if (i,b,j) in model.dead_dev_set:
+            return 1.0
+        elif nw.devices[i,b,j].T_min != 0:
+            # heating device -- lower bound of concern
+            return (1.0+(abs(nw.buildings[i,b].T_out[t]-nw.devices[i,b,j].T_min)*
+                         nw.buildings[i,b].iR*nw.buildings[i,b].iC*3600*nw.t_step
+                         *(nw.n_t-t-1)))
+        else:
+            # cooling device -- upper bound this time
+            return (1.0+(abs(nw.buildings[i,b].T_out[t]-nw.devices[i,b,j].T_max)*
+                         nw.buildings[i,b].iR*nw.buildings[i,b].iC*3600*nw.t_step
+                         *(nw.n_t-t-1)))
     
     # === CONSTRAINTS ===
     
@@ -56,13 +72,13 @@ def price_model(nw, requirements=True, M=1e6):
     # big M rule for price sensitiivty of devices
     def c_def(model,i,b,j,t):
         if t < model.deadline[i,b,j]:
-            return (model.lmp[t]+model.xi[i,t] <= model.c[i,b,j] + M*(1-model.x[i,b,j,t]))
+            return (model.lmp[t]+model.xi[i,t] <= model.c[i,b,j]*model.alpha[i,b,j,t] + M*(1-model.x[i,b,j,t]))
         else:
             return Constraint.Skip
         
     def c_def2(model,i,b,j,t):
         if t < model.deadline[i,b,j]:
-            return (model.c[i,b,j] <= model.lmp[t]+model.xi[i,t] + M*model.x[i,b,j,t])
+            return (model.c[i,b,j]*model.alpha[i,b,j,t] <= model.lmp[t]+model.xi[i,t] + M*model.x[i,b,j,t])
         else:
             return Constraint.Skip
     
@@ -78,6 +94,9 @@ def price_model(nw, requirements=True, M=1e6):
                 chosen = (i2,b,j)
         return model.xi[i,0] == nw.devices[chosen].prices[0]-nw.lmps[0]
     
+    def T0(model,i,b):
+        return model.T[i,b,0] == nw.buildings[i,b].T
+    
     # energy requirement of the devices
     def en_req(model,i,b,j):
         return (sum([model.x[i,b,j,t] for t in model.time_set])*model.p[i,b,j]*nw.t_step
@@ -88,26 +107,17 @@ def price_model(nw, requirements=True, M=1e6):
         if t == 0:
             return model.T[i,b,t] == nw.buildings[i,b].T
         else:
-            delta = ((model.T[i,b,t]-nw.buildings[i,b].T_out[t])
-                     *nw.buildings[i,b].iR*nw.buildings[i,b].iC
-                     +nw.buildings[i,b].GHI[t]*nw.buildings[i,b].iC)*nw.t_step*3600
+            thr = ((nw.buildings[i,b].T_out[t-1]-model.T[i,b,t-1])
+                   *nw.buildings[i,b].iR*nw.buildings[i,b].iC
+                   +nw.buildings[i,b].k*nw.buildings[i,b].GHI[t-1]*nw.buildings[i,b].iC)
             for (i,b,j) in connected_to[i,b]:
-                delta += (model.eta[i,b,j]*model.x[i,b,j,t]
-                          *model.p[i,b,j]*nw.t_step*3.6e6*nw.buildings[i,b].iC)
-            return model.T[i,b,t] == model.T[i,b,t-1] + delta
-         
-        
-    def temp_bound_upper(model,i,b,j,t):
-        if nw.devices[i,b,j].T_max is not None:
-            return model.T[i,b,t] <= nw.devices[i,b,j].T_max
-        else:
-            return Constraint.Skip
-        
-    def temp_bound_lower(model,i,b,j,t):
-        if nw.devices[i,b,j].T_min is not None:
-            return model.T[i,b,t] >= nw.devices[i,b,j].T_min
-        else:
-            return Constraint.Skip
+                thr += (model.p[i,b,j]*model.x[i,b,j,t-1]
+                        *nw.devices[i,b,j].eta*1000*nw.buildings[i,b].iC)
+            return model.T[i,b,t] == model.T[i,b,t-1] + thr*3600*nw.t_step
+    def t_lower(model,i,b,j,t):
+        return model.T[i,b,t] >= nw.devices[i,b,j].T_min
+    def t_upper(model,i,b,j,t):
+        return model.T[i,b,t] <= nw.devices[i,b,j].T_max
     
     # transformer limit
     def sub1(model,t):
@@ -129,13 +139,14 @@ def price_model(nw, requirements=True, M=1e6):
     model = ConcreteModel()
     
     # Sets
+    model.time_set=Set(initialize=list(range(nw.n_t)))
     model.bus_set=Set(initialize=list(nw.nodes.keys()))
+    model.building_set=Set(initialize=[b for b in list(nw.buildings.keys())])
     model.device_set=Set(initialize=[d for d in list(nw.devices.keys()) if nw.devices[d].active==True])
     model.dead_dev_set=Set(initialize=[d for d in list(nw.devices.keys()) if nw.devices[d].active==True 
                                        and nw.devices[d].type == 'deadline'])
     model.therm_dev_set=Set(initialize=[d for d in list(nw.devices.keys()) if nw.devices[d].active==True 
                                        and nw.devices[d].type == 'thermal'])
-    model.building_set=Set(initialize=[b for b in list(nw.buildings.keys())])
     
     # so that we can map thermal devices to buldings
     connected_to = {}
@@ -144,7 +155,6 @@ def price_model(nw, requirements=True, M=1e6):
     for d in model.therm_dev_set:
         connected_to[d[0],d[1]].append(d)
     
-    model.time_set=Set(initialize=list(range(nw.n_t)))
 
     # Parameters
     model.d = Param(model.bus_set,model.time_set,rule=demand)
@@ -153,13 +163,14 @@ def price_model(nw, requirements=True, M=1e6):
     model.eta = Param(model.device_set,rule=device_eff)
     model.P = Param(model.bus_set,rule=sub2_lim)
     model.S = Param(rule=sub1_lim)
-    model.E = Param(model.device_set,rule=device_consumption)
+    model.E = Param(model.dead_dev_set,rule=device_consumption)
     model.kappa = Param(rule=slack)
     model.deadline = Param(model.device_set,rule=deadline)
+    model.alpha = Param(model.device_set,model.time_set,rule=alpha)
 
     # Variables
     model.x = Var(model.device_set, model.time_set, within=Boolean)
-    model.xi = Var(model.bus_set, model.time_set)
+    model.xi = Var(model.bus_set, model.time_set,bounds=(0,1e7))
     model.c = Var(model.device_set)
     if len(model.therm_dev_set) > 0:
         model.T = Var(model.building_set,model.time_set)
@@ -167,7 +178,7 @@ def price_model(nw, requirements=True, M=1e6):
     #model.sigma2 = Var(bounds=(0,1000))
 
     # Constraints    
-    model.xi_sum = Constraint(model.bus_set,rule=xi_sum)
+    #model.xi_sum = Constraint(model.bus_set,rule=xi_sum)
     model.c_def = Constraint(model.device_set,model.time_set,rule=c_def)
     model.c_def2 = Constraint(model.device_set,model.time_set,rule=c_def2)
     model.en_req = Constraint(model.dead_dev_set,rule=en_req)
@@ -175,10 +186,11 @@ def price_model(nw, requirements=True, M=1e6):
     model.x0 = Constraint(model.device_set,rule=x0)
     if len(model.therm_dev_set) > 0:
         model.temp = Constraint(model.building_set,model.time_set,rule=temp)
-    model.t_bound_l = Constraint(model.therm_dev_set,model.time_set,rule=temp_bound_lower)
-    model.t_bound_u = Constraint(model.therm_dev_set,model.time_set,rule=temp_bound_upper)
+        model.t_bound_l = Constraint(model.therm_dev_set,model.time_set,rule=t_lower)
+        model.t_bound_u = Constraint(model.therm_dev_set,model.time_set,rule=t_upper)
+        model.T0 = Constraint(model.building_set,rule=T0)
     
-    for (i,b,j) in model.device_set:
+    for (i,b,j) in model.dead_dev_set:
         if True:#requirements is True:
             for t in range(model.deadline[i,b,j],nw.n_t):
                  model.x[i,b,j,t].fix(0)
@@ -205,7 +217,7 @@ def MPC_model(device,typ,interruptible,building):
     This function creates an MILP optimization problem for individual devices
     to optimize their consumption
     '''
-    
+    print('hi')
     def prices(model,t):
         return device.prices[t]
     

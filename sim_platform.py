@@ -65,7 +65,9 @@ def get_ca_temp(startdate,enddate,resolution=10):
             if day > enddate or day < startdate:
                 continue
             d = (day-startdate).days
-            h = int(row[3])-1
+            h = int(row[3])-8
+            if h < 0:
+                h += 24
             m = int(float(row[4])/10)
             temp_10[d*24+h*6+m] = float(row[6])
             ghi_10[d*24+h*6+m] = float(row[5])
@@ -187,10 +189,11 @@ class Simulation:
     #comptol
     #optimality
     def update_prices(self,opt,t):
+        print(t)
         self.controller = price_model(self.nw)
         if opt == 1:
             sol = SolverFactory('cplex_direct',solver_io="python")
-            #sol.options['time_limit'] = 1
+            sol.options['timelimit'] = 40
             results=sol.solve(self.controller,tee=False)
             try:
                 if self.controller.sigma[0].value > 1e-3:
@@ -348,12 +351,12 @@ class Sim_Plot:
         energy = (sum(p_total)-sum(self.d[self.xstart:self.xend]))*self.t_step
         self.ax1.plot(_t,p,c=c,lw=1.5,zorder=3)
         self.ax2.bar([n],[sum(cost)/energy],label=name,color=c,zorder=2)
-        
+        print('cost:'+str(sum(cost)/energy))
         # difference between power and limit
         diff = np.array(p_total)-np.array([self.lim]*len(p_total))
-        viol = sum([])
         self.ax3.bar([n],[sum([d for d in diff if d >0])*self.t_step],
                      label=name,color=c,zorder=2)
+        print('viol:'+str(sum([d for d in diff if d >0])*self.t_step))
         
     def compare_individual(self,name1,name2):
         cost = []

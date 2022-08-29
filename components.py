@@ -90,12 +90,12 @@ class DistNetwork:
             self.buildings[node_id,building_id].T0 = T0
         
         
-        self.devices[node_id,building_id,device_id+'a'] = Heating(node_id, building_id, device_id,
+        self.devices[node_id,building_id,device_id+'a'] = Heating(node_id, building_id, device_id+'a',
                                                                   self.t_step,self.t_step_min, self.n_t,
                                                                   copy.deepcopy(self.lmps[:self.n_t]),
-                                                                  T_min)
+                                                                  T_min)#'''
         
-        self.devices[node_id,building_id,device_id+'b'] = Cooling(node_id, building_id, device_id,
+        self.devices[node_id,building_id,device_id+'b'] = Cooling(node_id, building_id, device_id+'b',
                                                                   self.t_step,self.t_step_min, self.n_t,
                                                                   copy.deepcopy(self.lmps[:self.n_t]),
                                                                   T_max)
@@ -126,8 +126,10 @@ class Building:
         
     def step_building(self):
         # THIS UPDATES THE BUILDING TEMP CONSIDERING NO DEVICES
+        print(self.T)
         self.T += ((self.T_out[0]-self.T)*self.iR*self.iC
                     +self.k*self.GHI[0]*self.iC)*3600*self.t_step
+        print(self.T,self.T_out[0]-self.T,self.GHI[0])
         self.T_out = self.T_out[1:]
         self.GHI = self.GHI[1:]
         
@@ -194,7 +196,7 @@ class Device:
         self.active = True # is device connected
         self.E = 0 # actual energy required (kWh)
         self.x = 0 # is device drawing power
-        self.deadline = n_t 
+        self.deadline = np.inf 
         self.charged = 0
         self.time_passed = 0 
         
@@ -289,7 +291,23 @@ class Device:
     
     def step_thermal(self,timestep,building):
         # adds device contribution to thermal
+        print(self.device_id,end=' ')
+        print((self.p*1000*self.x*self.eta*building.iC)*3600*self.t_step,end=' ')
+        print(self.active)
         building.T += (self.p*1000*self.x*self.eta*building.iC)*3600*self.t_step
+        
+        # we do not want both AC and Heating to be active at once
+        # so can we find a way to deactivate unnecessary devices
+        
+        if self.T_min > 0 and building.T > building.T_out[0]:
+            self.active = True
+        elif self.T_max < 100 and building.T < building.T_out[0]:
+            self.active = True
+        else:
+            self.active = False
+            self.x = 0
+            
+        
         
         
     def step_deadline(self,timestep):
@@ -349,6 +367,7 @@ class EVCharger(Device):
 class Heating(Device):
     def __init__(self, node_id, building_id, device_id, t_step, t_step_min, n_t, 
                  prices, T_min):
+        print(device_id)
         # p_heat = 15*0.3 thermal
         # hspf = 10
         super().__init__(node_id, building_id, device_id, t_step, t_step_min, 
