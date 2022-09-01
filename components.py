@@ -126,10 +126,8 @@ class Building:
         
     def step_building(self):
         # THIS UPDATES THE BUILDING TEMP CONSIDERING NO DEVICES
-        print(self.T)
         self.T += ((self.T_out[0]-self.T)*self.iR*self.iC
                     +self.k*self.GHI[0]*self.iC)*3600*self.t_step
-        print(self.T,self.T_out[0]-self.T,self.GHI[0])
         self.T_out = self.T_out[1:]
         self.GHI = self.GHI[1:]
         
@@ -291,9 +289,6 @@ class Device:
     
     def step_thermal(self,timestep,building):
         # adds device contribution to thermal
-        print(self.device_id,end=' ')
-        print((self.p*1000*self.x*self.eta*building.iC)*3600*self.t_step,end=' ')
-        print(self.active)
         building.T += (self.p*1000*self.x*self.eta*building.iC)*3600*self.t_step
         
         # we do not want both AC and Heating to be active at once
@@ -367,7 +362,6 @@ class EVCharger(Device):
 class Heating(Device):
     def __init__(self, node_id, building_id, device_id, t_step, t_step_min, n_t, 
                  prices, T_min):
-        print(device_id)
         # p_heat = 15*0.3 thermal
         # hspf = 10
         super().__init__(node_id, building_id, device_id, t_step, t_step_min, 

@@ -47,28 +47,29 @@ evs = ['ev_35000617.csv','ev_35000817.csv','ev_35001017.csv',
        'ev_2911001617.csv','ev_2911002517.csv','ev_2911002617.csv',
        'ev_4441000317.csv']
 
-lmps = get_caiso_lmps(datetime.datetime(2021,1,1),
+lmps = get_caiso_lmps(datetime.datetime(2021,1,2),
                       datetime.datetime(2021,2,1),resolution=5)
 
-lmp_est = get_caiso_en(datetime.datetime(2021,1,1),
+lmp_est = get_caiso_en(datetime.datetime(2021,1,2),
                        datetime.datetime(2021,2,1),resolution=5)
-T_out,GHI = get_ca_temp(datetime.datetime(2020,7,26),
-                        datetime.datetime(2020,8,26),resolution=5)
+T_out,GHI = get_ca_temp(datetime.datetime(2020,1,2),
+                        datetime.datetime(2020,2,2),resolution=5)
 
 #lower bound, upper bound, T0
 temps = [[19,22,19.5],[16,24,19],[18,21,19],[20,22,21.5],[16,20,16.5],
          [17,20,18],[19,24,20.2],[18,24,19.6],[20,22,20.5],[21,24,21.9]]
 # create a 1 bus distribution network at transmission node #?
-network = DistNetwork(1,lmps,lmp_est,1.,n_t=12*6)
+#network = DistNetwork(10,lmps,lmp_est,4.5,n_t=12*6)
 #network = DistNetwork(30,lmps,lmp_est,30.,n_t=12*24)
+network = DistNetwork(1,lmps,lmp_est,7.1,n_t=12*24)
 # add households to each node
 for node_id in range(network.n_bus):
     for n in range(1):
         network.add_building(node_id,'Building'+str(n),'data/'+hhs[node_id%10],
-                             datetime.datetime(2018,7,26),T_out,GHI,
+                             datetime.datetime(2018,1,2),T_out,GHI,
                              heating=False,cooling=False, T0=temps[node_id%10][2]-0.5+0.1*int(node_id))
 
-'''        
+#'''        
 choices = ['econ','now']
 ev_no = 0
 # add EV chargers to each node
@@ -90,8 +91,9 @@ for node_id in range(network.n_bus):
 
 # intialize simulation
 sim = Simulation(network)
-sim.run_simulation(12*24,results_filepath='results/sim')
-#sim.run_simulation(36*12,results_filepath='results/sim1')
+sim.run_simulation(12*24,results_filepath='results/sim1')
+#sim.run_simulation(12*48,results_filepath='results/sim1')
+#sim.run_benchmark(12*48,results_filepath='results/sim3')
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_halfsmart_proposed2')
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_allsmart_proposed2')
 #sim.run_simulation(2592,results_filepath='results/30EVs_1perNode_halfuncontrolled',opt=False)
@@ -101,8 +103,13 @@ sim.run_simulation(12*24,results_filepath='results/sim')
 
 
 
-#plt = Sim_Plot(network,xstart=6*12,xend=12*30,ystart=0,yend=38,nh=6)
-#plt.plot_simulation('results/sim','Default',0,'#440154')
+#plt = Sim_Plot(network,xstart=0*12,xend=12*48,ystart=0,yend=75,nh=4,sf=1)
+#plt.plot_simulation('results/sim2','Default',0,'#440154')
+#plt.plot_simulation('results/sim1','Default',1,'#31688e')
+#plt.plot_simulation('results/10HVAC_default','Default',0,'#440154')
+#plt.plot_simulation('results/10HVAC_top','Top-down',1,'#31688e')
+#plt.plot_simulation('results/10HVAC_proposed','Proposed',2,'#35b779')
+#plt.plot_simulation('results/10HVAC_direct','Direct',3,'#fde725')
 
 #plt.plot_simulation('results/sim2','Default',0,'#440154')
 #plt.plot_simulation('results/sim2','Top-down',1,'#31688e')
@@ -116,6 +123,6 @@ sim.run_simulation(12*24,results_filepath='results/sim')
 #plt.plot_simulation('results/30EVs_1perNode_allsmart_direct','Direct',3,'#fde725')
 
 #plt.save_plot('heat.png')
-plt.save_plot('test.png')
+#plt.save_plot('test.png')
 
-#plt.plot_individuals('Top-down','Proposed','Direct','individuals.png')
+#splt.plot_individuals('Top-down','Proposed','Direct','individuals.png')

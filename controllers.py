@@ -170,7 +170,7 @@ def price_model(nw, requirements=True, M=1e6):
 
     # Variables
     model.x = Var(model.device_set, model.time_set, within=Boolean)
-    model.xi = Var(model.bus_set, model.time_set,bounds=(0,1e7))
+    model.xi = Var(model.bus_set, model.time_set)
     model.c = Var(model.device_set)
     if len(model.therm_dev_set) > 0:
         model.T = Var(model.building_set,model.time_set)
@@ -217,7 +217,6 @@ def MPC_model(device,typ,interruptible,building):
     This function creates an MILP optimization problem for individual devices
     to optimize their consumption
     '''
-    print('hi')
     def prices(model,t):
         return device.prices[t]
     

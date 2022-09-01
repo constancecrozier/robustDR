@@ -181,6 +181,11 @@ class Simulation:
             newline += str(self.nw.nodes[i].d[0])+','
         for (i,b,j) in list(self.nw.devices.keys()):
             newline += str(self.nw.devices[i,b,j].x*self.nw.devices[i,b,j].p)+','
+        for (i,b,j) in list(self.nw.devices.keys()):
+            try:
+                newline += str(self.controller.c[i,b,j].value)+','
+            except:
+                newline += 'NaN,'
         newline = newline[:-1]+'\n'
         f = open(self.path+'.txt','a')
         f.write(newline)
@@ -212,7 +217,7 @@ class Simulation:
                         self.nw.devices[i,b,j].prices[t] += self.controller.xi[i,t+1].value
                 
 class Sim_Plot:
-    def __init__(self,nw,xstart=0,xend=None,ystart=0,yend=None,nh=12):
+    def __init__(self,nw,xstart=0,xend=None,ystart=0,yend=None,nh=12,sf=1):
         '''
         nw (Network): Network object
         xstart (int): x axis lower limit for plot
@@ -220,6 +225,7 @@ class Sim_Plot:
         ystart (int): y axis lower limit for plot
         yend (int): y axis lower upper for plot
         nh (int): number of hours per tick for x axis
+        sf (float): scale factor for number of devices
         '''
         
         plt.rcParams["font.family"] = 'serif'
@@ -227,7 +233,7 @@ class Sim_Plot:
         
         self.xstart = copy.deepcopy(xstart)
         self.xend = copy.deepcopy(xend)
-        
+        self.sf = sf
         
         self.fig = plt.figure(figsize=(7,5))
         
@@ -252,7 +258,7 @@ class Sim_Plot:
         self.xi = {}
         self.ticks = []
         self.xpts = []
-        self.ax1.plot(d,label='Base',c='k',ls=':',lw=1)
+        self.ax1.plot(d*self.sf,label='Base',c='k',ls=':',lw=1)
 
         if xend is None:
             xend = nw.n_t*nw.len
@@ -267,7 +273,7 @@ class Sim_Plot:
 
         # set titles
         self.ax1.set_ylabel('Power Demand (kW)',y=0.8)
-        self.ax2.set_ylabel('Cost ($/kWh)',y=0.8)
+        self.ax2.set_ylabel('Average Cost ($)',y=0.8)
         self.ax3.set_ylabel('Violations (kWh)',y=0.8)
         self.ax1.set_xlabel('Simulation duration (hrs)')
         
@@ -284,7 +290,7 @@ class Sim_Plot:
         self.ax1.set_xticks(ticks*sf)
 
         # plot transformer limit
-        self.ax1.plot([self.xstart,self.xend],[nw.S,nw.S],c='r',ls='--',label='Limit',lw=1)
+        self.ax1.plot([self.xstart,self.xend],[nw.S*self.sf,nw.S*self.sf],c='r',ls='--',label='Limit',lw=0.8)
         self.lim = nw.S
         self.ax1.legend()
     
@@ -349,12 +355,12 @@ class Sim_Plot:
         p_total = p_total[self.xstart:self.xend]
         
         energy = (sum(p_total)-sum(self.d[self.xstart:self.xend]))*self.t_step
-        self.ax1.plot(_t,p,c=c,lw=1.5,zorder=3)
-        self.ax2.bar([n],[sum(cost)/energy],label=name,color=c,zorder=2)
+        self.ax1.plot(_t,np.array(p)*self.sf,c=c,lw=1.1,zorder=3)
+        self.ax2.bar([n],[sum(cost)/len(self.p[name])],label=name,color=c,zorder=2)
         print('cost:'+str(sum(cost)/energy))
         # difference between power and limit
         diff = np.array(p_total)-np.array([self.lim]*len(p_total))
-        self.ax3.bar([n],[sum([d for d in diff if d >0])*self.t_step],
+        self.ax3.bar([n],[sum([d for d in diff if d >0])*self.t_step*self.sf],
                      label=name,color=c,zorder=2)
         print('viol:'+str(sum([d for d in diff if d >0])*self.t_step))
         
