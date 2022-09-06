@@ -273,7 +273,7 @@ class Sim_Plot:
 
         # set titles
         self.ax1.set_ylabel('Power Demand (kW)',y=0.8)
-        self.ax2.set_ylabel('Average Cost ($)',y=0.8)
+        self.ax2.set_ylabel('Average Cost ($/MWh)',y=0.8)
         self.ax3.set_ylabel('Violations (kWh)',y=0.8)
         self.ax1.set_xlabel('Simulation duration (hrs)')
         
@@ -355,8 +355,8 @@ class Sim_Plot:
         p_total = p_total[self.xstart:self.xend]
         
         energy = (sum(p_total)-sum(self.d[self.xstart:self.xend]))*self.t_step
-        self.ax1.plot(_t,np.array(p)*self.sf,c=c,lw=1.1,zorder=3)
-        self.ax2.bar([n],[sum(cost)/len(self.p[name])],label=name,color=c,zorder=2)
+        self.ax1.plot(_t,np.array(p)*self.sf,c=c,lw=1.6,zorder=3)
+        self.ax2.bar([n],[sum(cost)/energy],label=name,color=c,zorder=2)
         print('cost:'+str(sum(cost)/energy))
         # difference between power and limit
         diff = np.array(p_total)-np.array([self.lim]*len(p_total))

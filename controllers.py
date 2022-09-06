@@ -55,13 +55,13 @@ def price_model(nw, requirements=True, M=1e6):
         elif nw.devices[i,b,j].T_min != 0:
             # heating device -- lower bound of concern
             return (1.0+(abs(nw.buildings[i,b].T_out[t]-nw.devices[i,b,j].T_min)*
-                         nw.buildings[i,b].iR*nw.buildings[i,b].iC*3600*nw.t_step
-                         *(nw.n_t-t-1)))
+                         nw.buildings[i,b].iR*1e-3*nw.t_step*(nw.n_t-t-1)
+                         /nw.devices[i,b,j].eta))
         else:
             # cooling device -- upper bound this time
             return (1.0+(abs(nw.buildings[i,b].T_out[t]-nw.devices[i,b,j].T_max)*
-                         nw.buildings[i,b].iR*nw.buildings[i,b].iC*3600*nw.t_step
-                         *(nw.n_t-t-1)))
+                         nw.buildings[i,b].iR*1e-3*nw.t_step*(nw.n_t-t-1)
+                         /nw.devices[i,b,j].eta))
     
     # === CONSTRAINTS ===
     

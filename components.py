@@ -37,7 +37,7 @@ class DistNetwork:
         self.buildings = {}
     
     def add_building(self,node_id,building_id,filepath,startdate,T_out,GHI,
-                     heating=True,cooling=True,k=5,iR=60,iC=6.667e-8,
+                     heating=True,cooling=True,k=1.3,iR=60,iC=6.667e-8,
                      T0=20):
         self.buildings[node_id,building_id] = Building(node_id,building_id,self.t_step,k,iR,iC,T0,T_out,GHI)
         
@@ -362,19 +362,25 @@ class EVCharger(Device):
 class Heating(Device):
     def __init__(self, node_id, building_id, device_id, t_step, t_step_min, n_t, 
                  prices, T_min):
-        # p_heat = 15*0.3 thermal
-        # hspf = 10
+        # p_heat = 4.5 kW thermal 
+        # hspf = 8.2
+        # hspf --> COP = 0.293
+        # p = 4.5/(8.2*0.293) = 1.87 kW
+        # eta = 8.2*0.293 = 2.4
         super().__init__(node_id, building_id, device_id, t_step, t_step_min, 
-                         n_t, prices, round(0.3*15/10,3), 10., typ='thermal', 
+                         n_t, prices, 1.87, 2.4, typ='thermal', 
                          T_min=T_min)
         
 class Cooling(Device):
     def __init__(self, node_id, building_id, device_id, t_step, t_step_min, n_t, 
                  prices, T_max):
-        # p_cool = 3.5*2 thermal
-        # seer = 20
+        # p_cool = 7 kW thermal
+        # seer = 16
+        # seer --> COP = 0.293
+        # p = 7/(16*0.293) = 1.5 kW
+        # eta = 16*0.293 = 4.68
         super().__init__(node_id, building_id, device_id, t_step, t_step_min, 
-                         n_t, prices, round(3.5*2/20,3), -20., typ='thermal', 
+                         n_t, prices, 1.5, -4.68, typ='thermal', 
                          T_max=T_max)
 
 
